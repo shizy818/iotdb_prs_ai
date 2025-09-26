@@ -15,6 +15,8 @@ python scraper.py  # 使用默认值
 3. 抓取从某天开始的N天内PR
 python scraper.py --since_date 2024-01-01 --days 7
 """
+
+
 class PRScraper:
     def __init__(self, github_token):
         self.db = DatabaseManager()
@@ -41,10 +43,10 @@ class PRScraper:
         Scrape a single pull request by number
         """
         print(f"Fetching PR #{pr_number}...")
-        pr_details = self.github.get_pull_request_details(pr_number)
+        pr_details, error = self.github.get_pull_request_details(pr_number)
 
-        if not pr_details:
-            print(f"Could not fetch PR #{pr_number}")
+        if error:
+            print(f"Could not fetch PR #{pr_number}: {error}")
             return False
 
         # Check if PR is merged
@@ -52,8 +54,7 @@ class PRScraper:
             print(f"PR #{pr_number} is not merged, skipping...")
             return False
 
-        self.process_pr(pr_details)
-        return True
+        return self.process_pr(pr_details)
 
     def process_pr(self, pr):
         """
@@ -64,7 +65,7 @@ class PRScraper:
         # Check if PR already exists in database
         if self.db.pr_exists(pr["number"]):
             print(f"PR #{pr['number']} already exists, skipping...")
-            return
+            return True
 
         # Extract PR data
         pr_data = {
@@ -83,74 +84,30 @@ class PRScraper:
             "deletions": pr.get("deletions", 0),
         }
 
-        # Store PR in database
-        if self.db.insert_pr(pr_data):
-            print(f"Stored PR #{pr['number']}")
+        # Get diff content
+        diff_content, error = self.github.get_diff_content(pr["diff_url"])
+        if error:
+            print(f"Failed to fetch diff content for PR #{pr['number']}: {error}")
+            return False
 
-            # Get and process diff content
-            self.process_pr_diff(pr["number"], pr["diff_url"])
+        # Get comments data
+        comments_data, error = self.github.get_pull_request_comments(pr["number"])
+        if error:
+            print(f"Failed to fetch comments for PR #{pr['number']}: {error}")
+            return False
 
-            # Get and process comments
-            self.process_pr_comments(pr["number"])
+        # Process PR, diff and comments in one transaction
+        if self.db.insert_pr_diff_comments(pr_data, diff_content, comments_data):
+            print(f"Successfully processed PR #{pr['number']} with all data")
 
-    def process_pr_diff(self, pr_number, diff_url):
-        """
-        Process diff content for a pull request
-        """
-        print(f"Fetching diff content for PR #{pr_number}")
-        diff_content = self.github.get_diff_content(diff_url)
-
-        if diff_content:
-            diff_data = {
-                "pr_number": pr_number,
-                "diff_content": diff_content,
-            }
-
-            if self.db.insert_diff(diff_data):
-                print(f"Stored diff content for PR #{pr_number}")
-            else:
-                print(f"Failed to store diff content for PR #{pr_number}")
+            # Process images one by one after PR data is saved
+            # 暂时不处理评论中的图片
+            # for comment in comments_data:
+            #     self.process_comment_images(comment["id"], comment["body"])
+            return True
         else:
-            print(f"No diff content found for PR #{pr_number}")
-
-    def process_pr_comments(self, pr_number):
-        """
-        Process all comments for a pull request
-        """
-        print(f"Fetching comments for PR #{pr_number}")
-        comments = self.github.get_pull_request_comments(pr_number)
-
-        if not comments:
-            print(f"No comments found for PR #{pr_number}")
-            return
-
-        print(f"Found {len(comments)} comments for PR #{pr_number}")
-
-        for comment in comments:
-            self.process_comment(pr_number, comment)
-
-    def process_comment(self, pr_number, comment):
-        """
-        Process a single comment
-        """
-        print(f"Processing comment {comment['id']} for PR #{pr_number}")
-
-        comment_data = {
-            "id": comment["id"],
-            "pr_number": pr_number,
-            "user": comment["user"]["login"],
-            "body": comment["body"],
-            "created_at": comment["created_at"],
-            "updated_at": comment["updated_at"],
-            "html_url": comment["html_url"],
-        }
-
-        # Store comment in database
-        if self.db.insert_comment(comment_data):
-            print(f"Stored comment {comment['id']}")
-
-            # Extract and download images from comment
-            # self.process_comment_images(comment["id"], comment["body"])
+            print(f"Failed to process PR #{pr['number']}")
+            return False
 
     def process_comment_images(self, comment_id, comment_body):
         """
@@ -236,7 +193,7 @@ class PRScraper:
         finally:
             self.db.close()
 
-    def run(self, days_back=30):
+    def run_back_days(self, days_back=30):
         """
         Run the scraper for time range
         """
@@ -288,4 +245,4 @@ if __name__ == "__main__":
         scraper.run_by_date_range(args.since_date, args.days)
     else:
         # Scrape by days back
-        scraper.run(days_back=args.days_back)
+        scraper.run_back_days(days_back=args.days_back)

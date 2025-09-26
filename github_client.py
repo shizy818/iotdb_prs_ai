@@ -44,15 +44,19 @@ class GitHubClient:
 
         while True:
             params["page"] = page
-            response = requests.get(url, headers=self.headers, params=params)
+            try:
+                response = requests.get(
+                    url, headers=self.headers, params=params, timeout=30
+                )
 
-            if response.status_code != 200:
-                print(f"Error fetching PRs: {response.status_code}")
-                break
+                if response.status_code != 200:
+                    return None, f"HTTP {response.status_code}"
 
-            page_prs = response.json()
-            if not page_prs:
-                break
+                page_prs = response.json()
+                if not page_prs:
+                    break
+            except requests.exceptions.RequestException as e:
+                return None, f"Network error: {str(e)}"
 
             # Filter for merged PRs and recent ones
             for pr in page_prs:
@@ -73,17 +77,19 @@ class GitHubClient:
         Get detailed information about a specific pull request
         """
         url = f"{self.base_url}/repos/{owner}/{repo}/pulls/{pr_number}"
-        response = requests.get(url, headers=self.headers)
+        try:
+            response = requests.get(url, headers=self.headers, timeout=30)
 
-        if response.status_code == 200:
-            return response.json()
-        else:
-            print(f"Error fetching PR details: {response.status_code}")
-            return None
+            if response.status_code == 200:
+                return response.json(), None
+            else:
+                return None, f"HTTP {response.status_code}"
+        except requests.exceptions.RequestException as e:
+            return None, f"Network error: {str(e)}"
 
     def get_pull_request_comments(self, pr_number, owner="apache", repo="iotdb"):
         """
-        Get all comments for a pull request
+        Get all comments for a pull request and return processed data
         """
         url = f"{self.base_url}/repos/{owner}/{repo}/issues/{pr_number}/comments"
         params = {"per_page": 100}
@@ -93,20 +99,38 @@ class GitHubClient:
 
         while True:
             params["page"] = page
-            response = requests.get(url, headers=self.headers, params=params)
+            try:
+                response = requests.get(
+                    url, headers=self.headers, params=params, timeout=30
+                )
 
-            if response.status_code != 200:
-                print(f"Error fetching comments: {response.status_code}")
-                break
+                if response.status_code != 200:
+                    return None, f"HTTP {response.status_code}"
 
-            page_comments = response.json()
-            if not page_comments:
-                break
+                page_comments = response.json()
+                if not page_comments:
+                    break
 
-            comments.extend(page_comments)
-            page += 1
+                comments.extend(page_comments)
+                page += 1
+            except requests.exceptions.RequestException as e:
+                return None, f"Network error: {str(e)}"
 
-        return comments
+        # Process comments data
+        comments_data = []
+        for comment in comments:
+            comments_data.append(
+                {
+                    "id": comment["id"],
+                    "user": comment["user"]["login"],
+                    "body": comment["body"],
+                    "created_at": comment["created_at"],
+                    "updated_at": comment["updated_at"],
+                    "html_url": comment["html_url"],
+                }
+            )
+
+        return comments_data, None
 
     def extract_images_from_text(self, text):
         """
@@ -167,10 +191,8 @@ class GitHubClient:
         try:
             response = requests.get(diff_url, headers=self.headers, timeout=30)
             if response.status_code == 200:
-                return response.text
+                return response.text, None
             else:
-                print(f"Error fetching diff content: {response.status_code}")
-                return None
+                return None, f"HTTP {response.status_code}"
         except Exception as e:
-            print(f"Error downloading diff content from {diff_url}: {e}")
-            return None
+            return None, f"Download error: {str(e)}"

@@ -14,8 +14,8 @@ def convert_iso_to_mysql_datetime(iso_datetime):
 
     try:
         # Parse ISO 8601 format and format as MySQL datetime
-        dt = datetime.fromisoformat(iso_datetime.replace('Z', '+00:00'))
-        return dt.strftime('%Y-%m-%d %H:%M:%S')
+        dt = datetime.fromisoformat(iso_datetime.replace("Z", "+00:00"))
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
     except (ValueError, AttributeError):
         return None
 
@@ -29,7 +29,11 @@ class DatabaseManager:
     def connect(self):
         try:
             self.connection = mysql.connector.connect(
-                host="localhost", user="root", password="1234", database="github_prs"
+                host="localhost",
+                user="root",
+                password="1234",
+                database="github_prs",
+                autocommit=True,
             )
             if self.connection.is_connected():
                 print("Connected to MySQL database")
@@ -109,13 +113,6 @@ class DatabaseManager:
         query = """
         INSERT INTO pull_requests (number, title, body, created_at, merged_at, user, labels, head, base, diff_url, comments_url, additions, deletions)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        ON DUPLICATE KEY UPDATE
-            title = VALUES(title),
-            body = VALUES(body),
-            merged_at = VALUES(merged_at),
-            labels = VALUES(labels),
-            additions = VALUES(additions),
-            deletions = VALUES(deletions)
         """
 
         try:
@@ -150,9 +147,6 @@ class DatabaseManager:
         query = """
         INSERT INTO comments (id, pr_number, user, body, created_at, updated_at, html_url)
         VALUES (%s, %s, %s, %s, %s, %s, %s)
-        ON DUPLICATE KEY UPDATE
-            body = VALUES(body),
-            updated_at = VALUES(updated_at)
         """
 
         try:
@@ -208,8 +202,6 @@ class DatabaseManager:
         query = """
         INSERT INTO pr_diffs (pr_number, diff_content)
         VALUES (%s, %s)
-        ON DUPLICATE KEY UPDATE
-            diff_content = VALUES(diff_content)
         """
 
         try:
@@ -242,6 +234,92 @@ class DatabaseManager:
             return result is not None
         except Error as e:
             print(f"Error checking PR existence: {e}")
+            return False
+        finally:
+            cursor.close()
+
+    def insert_pr_diff_comments(self, pr_data, diff_content=None, comments_list=None):
+        """在一个事务中处理PR、diff和comments"""
+        cursor = self.connection.cursor()
+        try:
+            # 调试信息：检查连接状态
+            print(
+                f"开始处理PR #{pr_data['number']}: autocommit={self.connection.autocommit}, in_transaction={self.connection.in_transaction}"
+            )
+
+            self.connection.start_transaction()
+
+            # 插入PR
+            pr_insert = """
+            INSERT INTO pull_requests (number, title, body, created_at, merged_at, user, labels, head, base, diff_url, comments_url, additions, deletions)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """
+            cursor.execute(
+                pr_insert,
+                (
+                    pr_data["number"],
+                    pr_data["title"],
+                    pr_data["body"],
+                    convert_iso_to_mysql_datetime(pr_data["created_at"]),
+                    convert_iso_to_mysql_datetime(pr_data["merged_at"]),
+                    pr_data["user"],
+                    pr_data["labels"],
+                    pr_data["head"],
+                    pr_data["base"],
+                    pr_data["diff_url"],
+                    pr_data["comments_url"],
+                    pr_data["additions"],
+                    pr_data["deletions"],
+                ),
+            )
+
+            # 插入diff
+            if diff_content:
+                diff_insert = (
+                    "INSERT INTO pr_diffs (pr_number, diff_content) VALUES (%s, %s)"
+                )
+                cursor.execute(diff_insert, (pr_data["number"], diff_content))
+
+            # 插入comments
+            if comments_list:
+                comment_insert = """
+                INSERT INTO comments (id, pr_number, user, body, created_at, updated_at, html_url)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """
+                for comment in comments_list:
+                    cursor.execute(
+                        comment_insert,
+                        (
+                            comment["id"],
+                            pr_data["number"],
+                            comment["user"],
+                            comment["body"],
+                            convert_iso_to_mysql_datetime(comment["created_at"]),
+                            convert_iso_to_mysql_datetime(comment["updated_at"]),
+                            comment["html_url"],
+                        ),
+                    )
+
+            self.connection.commit()
+            return True
+
+        except Error as e:
+            self.connection.rollback()
+            print(f"事务失败，已回滚: {e}")
+            return False
+        finally:
+            cursor.close()
+
+    def delete_pr(self, pr_number):
+        """删除PR（CASCADE自动删除相关数据）"""
+        query = "DELETE FROM pull_requests WHERE number = %s"
+        try:
+            cursor = self.connection.cursor()
+            cursor.execute(query, (pr_number,))
+            self.connection.commit()
+            return cursor.rowcount > 0
+        except Error as e:
+            print(f"删除PR失败: {e}")
             return False
         finally:
             cursor.close()
