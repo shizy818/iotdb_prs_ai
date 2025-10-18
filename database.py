@@ -62,7 +62,7 @@ class DatabaseManager:
         """
 
         create_comments_table = """
-        CREATE TABLE IF NOT EXISTS comments (
+        CREATE TABLE IF NOT EXISTS pr_comments (
             id BIGINT PRIMARY KEY,
             pr_number INT,
             user VARCHAR(255),
@@ -75,7 +75,7 @@ class DatabaseManager:
         """
 
         create_images_table = """
-        CREATE TABLE IF NOT EXISTS images (
+        CREATE TABLE IF NOT EXISTS pr_images (
             id INT AUTO_INCREMENT PRIMARY KEY,
             comment_id BIGINT,
             url VARCHAR(1000),
@@ -83,7 +83,7 @@ class DatabaseManager:
             content_type VARCHAR(100),
             size INT,
             data LONGBLOB,
-            FOREIGN KEY (comment_id) REFERENCES comments(id) ON DELETE CASCADE
+            FOREIGN KEY (comment_id) REFERENCES pr_comments(id) ON DELETE CASCADE
         )
         """
 
@@ -144,8 +144,13 @@ class DatabaseManager:
             cursor.close()
 
     def insert_comment(self, comment_data):
+        # 过滤掉包含 [bot] 的作者
+        if "[bot]" in comment_data.get("user", "").lower():
+            print(f"跳过bot评论: {comment_data.get('user', '')}")
+            return True
+
         query = """
-        INSERT INTO comments (id, pr_number, user, body, created_at, updated_at, html_url)
+        INSERT INTO pr_comments (id, pr_number, user, body, created_at, updated_at, html_url)
         VALUES (%s, %s, %s, %s, %s, %s, %s)
         """
 
@@ -173,7 +178,7 @@ class DatabaseManager:
 
     def insert_image(self, image_data):
         query = """
-        INSERT INTO images (comment_id, url, filename, content_type, size, data)
+        INSERT INTO pr_images (comment_id, url, filename, content_type, size, data)
         VALUES (%s, %s, %s, %s, %s, %s)
         """
 
@@ -280,13 +285,18 @@ class DatabaseManager:
                 )
                 cursor.execute(diff_insert, (pr_data["number"], diff_content))
 
-            # 插入comments
+            # 插入comments（过滤掉 bot）
             if comments_list:
                 comment_insert = """
-                INSERT INTO comments (id, pr_number, user, body, created_at, updated_at, html_url)
+                INSERT INTO pr_comments (id, pr_number, user, body, created_at, updated_at, html_url)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
                 """
                 for comment in comments_list:
+                    # 过滤掉包含 [bot] 的作者
+                    if "[bot]" in comment.get("user", "").lower():
+                        print(f"跳过bot评论: {comment.get('user', '')}")
+                        continue
+
                     cursor.execute(
                         comment_insert,
                         (

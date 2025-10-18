@@ -1,7 +1,7 @@
 import asyncio
 import json
 import os
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 from datetime import datetime
 
 from claude_code_sdk import ClaudeSDKClient, ClaudeCodeOptions
@@ -78,6 +78,21 @@ class PRAnalysisWithClaude:
                 else:
                     pr["diff_content"] = None
 
+                # 获取对应的评论内容
+                comments_query = """
+                SELECT id, user, body, created_at, updated_at, html_url
+                FROM pr_comments
+                WHERE pr_number = %s
+                ORDER BY created_at ASC
+                """
+                cursor.execute(comments_query, (pr["number"],))
+                comments_results = cursor.fetchall()
+
+                if comments_results:
+                    pr["comments"] = comments_results
+                else:
+                    pr["comments"] = []
+
             cursor.close()
             return pr
 
@@ -100,6 +115,21 @@ class PRAnalysisWithClaude:
         else:
             diff_section = f"- Diff链接: {pr_data.get('diff_url', '无')}"
 
+        # 构建评论部分
+        comments_section = ""
+        if pr_data.get("comments"):
+            comments_section = "- PR 讨论评论:\n"
+            for idx, comment in enumerate(pr_data["comments"], 1):
+                comment_time = comment.get("created_at", "")
+                comment_user = comment.get("user", "未知用户")
+                comment_body = comment.get("body", "")
+                comments_section += f"""  评论 {idx} (作者: {comment_user}, 时间: {comment_time}):
+  {comment_body}
+  ---
+"""
+        else:
+            comments_section = "- PR 讨论评论: 无\n"
+
         template = """
 IoTDB PR详细信息：
 - 编号: {number}
@@ -111,8 +141,8 @@ IoTDB PR详细信息：
 - 标签: {labels}
 - 代码变更: +{additions} 行, -{deletions} 行
 - 分支: {head} -> {base}
-- 评论链接: {comments_url}
 {diff_section}
+{comments_section}
 
 请从以下角度进行深入分析：
 1. 这个PR具体解决了什么技术问题？
@@ -135,8 +165,8 @@ IoTDB PR详细信息：
             deletions=pr_data.get("deletions", 0),
             head=pr_data.get("head", ""),
             base=pr_data.get("base", ""),
-            comments_url=pr_data.get("comments_url", ""),
             diff_section=diff_section,
+            comments_section=comments_section,
         )
 
     async def analyze_single_pr(self, pr_number: Optional[int] = None) -> Dict:
