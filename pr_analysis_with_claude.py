@@ -62,6 +62,22 @@ class PRAnalysisWithClaude:
                 else:
                     pr["labels"] = []
 
+                # 获取对应的diff内容
+                diff_query = """
+                SELECT diff_content
+                FROM pr_diffs
+                WHERE pr_number = %s
+                ORDER BY created_at DESC
+                LIMIT 1
+                """
+                cursor.execute(diff_query, (pr["number"],))
+                diff_result = cursor.fetchone()
+
+                if diff_result and diff_result["diff_content"]:
+                    pr["diff_content"] = diff_result["diff_content"]
+                else:
+                    pr["diff_content"] = None
+
             cursor.close()
             return pr
 
@@ -73,6 +89,17 @@ class PRAnalysisWithClaude:
         """
         构建PR分析查询模板
         """
+        # 构建diff部分
+        if pr_data.get("diff_content"):
+            diff_section = f"""
+- 代码变更详情（Diff）:
+```diff
+{pr_data.get("diff_content")}
+```
+"""
+        else:
+            diff_section = f"- Diff链接: {pr_data.get('diff_url', '无')}"
+
         template = """
 IoTDB PR详细信息：
 - 编号: {number}
@@ -84,8 +111,8 @@ IoTDB PR详细信息：
 - 标签: {labels}
 - 代码变更: +{additions} 行, -{deletions} 行
 - 分支: {head} -> {base}
-- Diff链接: {diff_url}
 - 评论链接: {comments_url}
+{diff_section}
 
 请从以下角度进行深入分析：
 1. 这个PR具体解决了什么技术问题？
@@ -108,8 +135,8 @@ IoTDB PR详细信息：
             deletions=pr_data.get("deletions", 0),
             head=pr_data.get("head", ""),
             base=pr_data.get("base", ""),
-            diff_url=pr_data.get("diff_url", ""),
             comments_url=pr_data.get("comments_url", ""),
+            diff_section=diff_section,
         )
 
     async def analyze_single_pr(self, pr_number: Optional[int] = None) -> Dict:
@@ -136,9 +163,8 @@ IoTDB PR详细信息：
             # 使用ClaudeSDKClient发送查询
             async with ClaudeSDKClient(
                 options=ClaudeCodeOptions(
-                    permission_mode="plan",
-                    system_prompt="您是一名时序数据库IoTDB专家，请根据提供的PR信息分析可能的技术问题和风险。",
-                    max_turns=1,
+                    system_prompt="您是一名时序数据库IoTDB专家，请根据提供的PR信息进行详细分析，提供完整的分析结果。",
+                    max_turns=5,  # 增加轮次以确保完整响应
                 )
             ) as client:
                 # 发送查询
@@ -146,11 +172,21 @@ IoTDB PR详细信息：
 
                 # 收集响应
                 analysis_result = ""
+                print("\n=== Claude 分析结果 ===\n")
+
+                # 接收所有消息直到结束
+                # message_count = 0
                 async for message in client.receive_response():
+                    # message_count += 1
+                    # print(f"[DEBUG] 收到第 {message_count} 个消息，类型: {type(message)}")
+
                     if hasattr(message, "content"):
                         for block in message.content:
                             if hasattr(block, "text"):
                                 analysis_result += block.text
+
+                # print(f"\n\n=== 分析完成 (共收到 {message_count} 个消息) ===\n")
+                # print(f"[DEBUG] 累积结果长度: {len(analysis_result)} 字符\n")
 
                 return {
                     "success": True,
