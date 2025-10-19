@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
 
+import sys
+from pathlib import Path
+
+# 添加父目录到Python路径
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 from database import convert_iso_to_mysql_datetime
 
 def test_datetime_conversion():

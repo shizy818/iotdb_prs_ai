@@ -224,6 +224,7 @@ IoTDB PR详细信息：
                     "pr_title": target_pr["title"],
                     "analysis": analysis_result,
                     "analyzed_at": datetime.now().isoformat(),
+                    "pr_data": target_pr,  # 添加PR数据供调用者使用
                 }
 
         except Exception as e:

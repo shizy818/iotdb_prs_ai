@@ -1,3 +1,18 @@
 .idea
 .venv
 __pycache__
+
+# 向量数据库存储目录
+chroma_db/
+
+# 模型缓存
+.cache/
+models/
+
+# PR分析结果
+*_analysis.json
+
+# 测试临时文件
+test/*.json
+test/__pycache__/
+test/.pytest_cache/

@@ -12,6 +12,7 @@ import os
 from typing import Dict
 
 from pr_analysis_with_claude import PRAnalysisWithClaude
+from vector_store import VectorStoreManager
 
 
 def print_analysis_result(result: Dict):
@@ -27,6 +28,13 @@ def print_analysis_result(result: Dict):
 
     if result["success"]:
         print(f"✅ 分析完成于: {result['analyzed_at']}")
+
+        # 显示向量存储状态
+        if result.get("vector_store_saved"):
+            print(f"💾 已保存到向量数据库")
+        elif "vector_store_saved" in result:
+            print(f"⚠️ 向量数据库保存失败")
+
         print(f"\n📋 分析结果:")
         print(f"{'-'*60}")
         print(result["analysis"])
@@ -42,6 +50,7 @@ async def main():
     )
     parser.add_argument("--pr", type=int, help="分析特定PR编号")
     parser.add_argument("--output", type=str, help="输出结果到JSON文件")
+    parser.add_argument("--use_vector_store", type=bool, help="禁用向量数据库存储")
 
     args = parser.parse_args()
 
@@ -53,6 +62,16 @@ async def main():
         print(f"❌ 初始化失败: {e}")
         return 1
 
+    # 初始化向量数据库
+    vector_store = None
+    if args.use_vector_store:
+        try:
+            vector_store = VectorStoreManager()
+            print("✅ 向量数据库已启用")
+        except Exception as e:
+            print(f"⚠️ 向量数据库初始化失败: {e}")
+            vector_store = None
+
     try:
         # 分析单个PR
         if args.pr:
@@ -61,6 +80,28 @@ async def main():
             print(f"\n🔍 正在分析最新PR...")
 
         result = await analyzer.analyze_single_pr(args.pr)
+
+        # 将分析结果写入向量数据库
+        if result["success"] and vector_store and result.get("analysis"):
+            print("\n💾 正在将分析结果写入向量数据库...")
+            pr_data = result.get("pr_data", {})
+            vector_metadata = {
+                "analyzed_at": result["analyzed_at"],
+                "labels": json.dumps(pr_data.get("labels", [])),
+                "user": pr_data.get("user", ""),
+                "merged_at": str(pr_data.get("merged_at", "")),
+            }
+
+            success = vector_store.add_pr_analysis(
+                pr_number=result["pr_number"],
+                pr_title=result["pr_title"],
+                analysis=result["analysis"],
+                metadata=vector_metadata,
+            )
+
+            result["vector_store_saved"] = success
+        else:
+            result["vector_store_saved"] = False
 
         print_analysis_result(result)
 
