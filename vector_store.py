@@ -188,6 +188,47 @@ class VectorStoreManager:
             print(f"❌ 搜索失败: {e}")
             return []
 
+    def get_pr_by_number(self, pr_number: int) -> Optional[Dict]:
+        """
+        根据PR编号获取分析结果
+
+        Args:
+            pr_number: PR编号
+
+        Returns:
+            包含PR分析内容和元数据的字典，如果不存在则返回None
+        """
+        try:
+            # 查询指定pr_number的所有文档
+            results = self.vectorstore.get(where={"pr_number": pr_number})
+
+            if not results or not results.get("ids"):
+                return None
+
+            # 合并所有chunks的内容
+            documents = results.get("documents", [])
+            metadatas = results.get("metadatas", [])
+
+            if not documents:
+                return None
+
+            # 组合完整内容
+            full_content = "\n".join(documents)
+
+            # 使用第一个文档的元数据作为基础
+            metadata = metadatas[0] if metadatas else {}
+
+            return {
+                "pr_number": pr_number,
+                "pr_title": metadata.get("pr_title", ""),
+                "content": full_content,
+                "metadata": metadata,
+            }
+
+        except Exception as e:
+            print(f"❌ 获取PR #{pr_number}失败: {e}")
+            return None
+
     def delete_pr_analysis(self, pr_number: int) -> bool:
         """
         删除指定PR的分析结果

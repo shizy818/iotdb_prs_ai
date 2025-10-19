@@ -116,6 +116,37 @@ def search_command(args):
             print("\n未找到相关结果")
 
 
+def fetch_command(args):
+    """根据PR编号获取分析结果"""
+    pr_number = args.pr_number
+    print(f"\n🔍 获取PR #{pr_number}的分析结果...")
+
+    # 初始化向量数据库
+    vector_store = VectorStoreManager()
+
+    # 获取特定PR
+    result = vector_store.get_pr_by_number(pr_number)
+
+    if not result:
+        print(f"\n❌ 未找到PR #{pr_number}的分析结果")
+        print("💡 提示: 该PR可能尚未被分析，请先使用analyze_pr.py进行分析")
+        return
+
+    print(f"\n✅ 找到PR #{pr_number}的分析结果")
+    print("=" * 80)
+    print(f"PR编号: #{result['pr_number']}")
+    print(f"PR标题: {result['pr_title']}")
+
+    metadata = result.get("metadata", {})
+    if metadata.get("analyzed_at"):
+        print(f"分析时间: {metadata['analyzed_at']}")
+
+    print("=" * 80)
+    print("\n分析内容:\n")
+    print(result["content"])
+    print("\n" + "=" * 80)
+
+
 def stats_command(args):
     """显示统计信息"""
     print("\n📊 向量数据库统计信息")
@@ -149,6 +180,9 @@ def main():
   # 显示完整内容
   python search_pr_analysis.py search "feature.xml" --full
 
+  # 获取指定PR的分析结果
+  python search_pr_analysis.py fetch 16487
+
   # 查看数据库统计
   python search_pr_analysis.py stats
         """,
@@ -167,6 +201,10 @@ def main():
     )
     search_parser.add_argument("--full", action="store_true", help="显示完整内容")
 
+    # 获取PR命令
+    fetch_parser = subparsers.add_parser("fetch", help="获取指定PR的分析结果")
+    fetch_parser.add_argument("pr_number", type=int, help="PR编号")
+
     # 统计命令
     subparsers.add_parser("stats", help="显示数据库统计信息")
 
@@ -176,6 +214,8 @@ def main():
     try:
         if args.command == "search":
             search_command(args)
+        elif args.command == "fetch":
+            fetch_command(args)
         elif args.command == "stats":
             stats_command(args)
         else:
