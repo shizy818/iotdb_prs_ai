@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-IoTDB PR分析工具 - 使用ClaudeSDKClient
-利用ClaudeSDKClient分析IoTDB PR的问题和潜在影响
+IoTDB PR分析工具 - 使用ClaudeAgentClient
+利用ClaudeAgentClient分析IoTDB PR的问题和潜在影响
 """
 
 import asyncio
@@ -79,7 +79,7 @@ async def main():
         else:
             print(f"\n🔍 正在分析最新PR...")
 
-        result = await analyzer.analyze_single_pr(args.pr)
+        result = await analyzer.analyze_pr_with_anthropic(pr_number=args.pr)
 
         # 将分析结果写入向量数据库
         if result["success"] and vector_store and result.get("analysis"):

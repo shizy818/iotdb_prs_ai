@@ -1,6 +1,6 @@
 # legal-agent.py
 import asyncio
-from claude_code_sdk import ClaudeSDKClient, ClaudeCodeOptions
+from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
 
 import os
 
@@ -10,7 +10,7 @@ os.environ["ANTHROPIC_API_KEY"] = "9be7a6c89bfc4cd99efb491c77140aa4.GI2bDndwSd7h
 
 async def main():
     async with ClaudeSDKClient(
-        options=ClaudeCodeOptions(
+        options=ClaudeAgentOptions(
             permission_mode="plan",
             system_prompt="您是一名时序数据库IoTDB专家。",
             max_turns=2,

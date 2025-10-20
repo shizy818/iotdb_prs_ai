@@ -54,7 +54,7 @@ async def demo_workflow():
         )
     else:
         print("正在调用Claude分析PR...")
-        result = await analyzer.analyze_single_pr(16487)
+        result = await analyzer.analyze_pr_with_anthropic(pr_number=16487)
 
         if result["success"]:
             print(f"✅ 分析成功!")
