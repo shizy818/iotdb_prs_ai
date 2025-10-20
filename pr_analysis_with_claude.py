@@ -1,12 +1,13 @@
 import asyncio
 import json
 import os
-from typing import Dict, Optional, cast, Iterable, Any
+from typing import Dict, Optional, List
 from datetime import datetime
+from pathlib import Path
+import subprocess
 
 from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
 import anthropic
-from anthropic.types import TextBlockParam, MessageParam, CacheControlEphemeralParam
 
 from database import DatabaseManager
 
@@ -89,11 +90,17 @@ IoTDB PR详细信息：
 
 
 class PRAnalysisWithClaude:
-    def __init__(self):
+    def __init__(
+        self, iotdb_source_dir: str = "/Users/shizy/projects/iotdb_issues_ai/iotdb"
+    ):
         """
         初始化PR分析器，使用ClaudeSDKClient和数据库连接
+
+        Args:
+            iotdb_source_dir: IoTDB 源码目录路径
         """
         self.db = DatabaseManager()
+        self.iotdb_source_dir = Path(iotdb_source_dir)
 
         # 设置Claude SDK环境变量
         # os.environ["ANTHROPIC_BASE_URL"] = "https://open.bigmodel.cn/api/anthropic"
@@ -180,19 +187,230 @@ class PRAnalysisWithClaude:
             print(f"从数据库获取PR数据时出错: {e}")
             return None
 
+    def _execute_read_tool(self, file_path: str) -> Dict:
+        """
+        执行 read 工具：读取文件内容
+
+        Args:
+            file_path: 文件路径（相对于 iotdb_source_dir）
+
+        Returns:
+            工具执行结果
+        """
+        try:
+            full_path = self.iotdb_source_dir / file_path
+            if not full_path.exists():
+                return {"success": False, "error": f"文件不存在: {file_path}"}
+
+            # 读取文件内容（限制大小）
+            with open(full_path, "r", encoding="utf-8") as f:
+                content = f.read(500000)  # 限制 500KB
+
+            return {"success": True, "content": content, "file_path": file_path}
+        except Exception as e:
+            return {"success": False, "error": f"读取文件失败: {str(e)}"}
+
+    def _execute_glob_tool(self, pattern: str, path: str = "") -> Dict:
+        """
+        执行 glob 工具：查找匹配的文件
+
+        Args:
+            pattern: glob 模式（如 "**/*.java"）
+            path: 搜索路径（相对于 iotdb_source_dir）
+
+        Returns:
+            工具执行结果
+        """
+        try:
+            search_dir = self.iotdb_source_dir / path if path else self.iotdb_source_dir
+            matches = list(search_dir.glob(pattern))
+
+            # 转换为相对路径
+            relative_paths = [
+                str(p.relative_to(self.iotdb_source_dir)) for p in matches[:100]
+            ]  # 限制 100 个结果
+
+            return {
+                "success": True,
+                "matches": relative_paths,
+                "count": len(relative_paths),
+            }
+        except Exception as e:
+            return {"success": False, "error": f"Glob 搜索失败: {str(e)}"}
+
+    def _execute_grep_tool(
+        self, pattern: str, path: str = "", file_type: str = ""
+    ) -> Dict:
+        """
+        执行 grep 工具：搜索文件内容
+
+        Args:
+            pattern: 搜索模式（正则表达式）
+            path: 搜索路径（相对于 iotdb_source_dir）
+            file_type: 文件类型过滤（如 "java", "py"）
+
+        Returns:
+            工具执行结果
+        """
+        try:
+            search_dir = self.iotdb_source_dir / path if path else self.iotdb_source_dir
+
+            # 构建 rg (ripgrep) 命令
+            cmd = ["rg", "--json", pattern, str(search_dir)]
+            if file_type:
+                cmd.extend(["--type", file_type])
+
+            # 执行搜索
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+
+            # 解析结果
+            matches = []
+            for line in result.stdout.strip().split("\n"):
+                if not line:
+                    continue
+                try:
+                    data = json.loads(line)
+                    if data.get("type") == "match":
+                        match_data = data.get("data", {})
+                        file_path = match_data.get("path", {}).get("text", "")
+                        line_number = match_data.get("line_number")
+                        line_text = match_data.get("lines", {}).get("text", "").strip()
+
+                        # 转换为相对路径
+                        if file_path:
+                            rel_path = str(
+                                Path(file_path).relative_to(self.iotdb_source_dir)
+                            )
+                            matches.append(
+                                {
+                                    "file": rel_path,
+                                    "line": line_number,
+                                    "content": line_text,
+                                }
+                            )
+                except json.JSONDecodeError:
+                    continue
+
+            return {
+                "success": True,
+                "matches": matches[:50],  # 限制 50 个结果
+                "count": len(matches),
+            }
+        except FileNotFoundError:
+            # 如果没有 ripgrep，回退到 grep
+            return {
+                "success": False,
+                "error": "ripgrep (rg) 未安装，请安装: brew install ripgrep",
+            }
+        except Exception as e:
+            return {"success": False, "error": f"Grep 搜索失败: {str(e)}"}
+
+    def _get_tool_definitions(self) -> List[Dict]:
+        """
+        获取工具定义（Anthropic API 格式）
+        """
+        return [
+            {
+                "name": "read",
+                "description": "读取 IoTDB 源码文件的内容。文件路径相对于 IoTDB 源码根目录。",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "file_path": {
+                            "type": "string",
+                            "description": "要读取的文件路径，相对于 IoTDB 源码根目录（如 'iotdb-core/datanode/src/main/java/org/apache/iotdb/db/queryengine/execution/operator/process/TableIntoOperator.java'）",
+                        }
+                    },
+                    "required": ["file_path"],
+                },
+            },
+            {
+                "name": "glob",
+                "description": "使用 glob 模式查找匹配的文件。支持 ** 通配符。",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "pattern": {
+                            "type": "string",
+                            "description": "Glob 模式（如 '**/*TableIntoOperator*.java', '**/*.xml'）",
+                        },
+                        "path": {
+                            "type": "string",
+                            "description": "搜索路径，相对于 IoTDB 源码根目录（可选，默认为根目录）",
+                        },
+                    },
+                    "required": ["pattern"],
+                },
+            },
+            {
+                "name": "grep",
+                "description": "在 IoTDB 源码中搜索匹配的内容。使用正则表达式模式。",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "pattern": {
+                            "type": "string",
+                            "description": "搜索模式（正则表达式）",
+                        },
+                        "path": {
+                            "type": "string",
+                            "description": "搜索路径，相对于 IoTDB 源码根目录（可选）",
+                        },
+                        "file_type": {
+                            "type": "string",
+                            "description": "文件类型过滤（如 'java', 'py', 'xml'）（可选）",
+                        },
+                    },
+                    "required": ["pattern"],
+                },
+            },
+        ]
+
+    def _execute_tool(self, tool_name: str, tool_input: Dict) -> Dict:
+        """
+        执行工具调用
+
+        Args:
+            tool_name: 工具名称
+            tool_input: 工具输入参数
+
+        Returns:
+            工具执行结果
+        """
+        if tool_name == "read":
+            return self._execute_read_tool(tool_input.get("file_path", ""))
+        elif tool_name == "glob":
+            return self._execute_glob_tool(
+                tool_input.get("pattern", ""), tool_input.get("path", "")
+            )
+        elif tool_name == "grep":
+            return self._execute_grep_tool(
+                tool_input.get("pattern", ""),
+                tool_input.get("path", ""),
+                tool_input.get("file_type", ""),
+            )
+        else:
+            return {"success": False, "error": f"未知工具: {tool_name}"}
+
     async def analyze_pr_with_anthropic(
         self,
         pr_number: Optional[int] = None,
-        max_tokens: int = 8192,
+        max_tokens: int = 16384,
         temperature: float = 0.3,
+        enable_tools: bool = True,
+        max_tool_rounds: int = 10,
+        use_cache: bool = True,
     ) -> Dict:
         """
-        使用 Anthropic API 进行一次性 PR 分析（支持 cache_control 和自定义 max_tokens）
+        使用 Anthropic API 进行 PR 分析（支持工具调用：read, glob, grep + cache_control）
 
         Args:
             pr_number: PR编号
-            max_tokens: 最大输出 tokens（默认 8192）
+            max_tokens: 最大输出 tokens（默认 16384）
             temperature: 温度参数，控制输出随机性（0-1，默认 0.3，越低越一致）
+            enable_tools: 是否启用工具调用（read, glob, grep）（默认 True）
+            max_tool_rounds: 最大工具调用轮数（默认 10）
+            use_cache: 是否使用 prompt caching（默认 True）
         """
         # 获取PR数据
         target_pr = self.get_pr_by_number(pr_number)
@@ -221,103 +439,208 @@ class PRAnalysisWithClaude:
             print(f"📊 完整查询大小: {query_size:,} 字符 (~{query_size // 4:,} tokens)")
 
             # 构建系统提示
-            system_prompt = "您是一名时序数据库IoTDB专家，请根据提供的PR信息和本地iotdb源码进行分析，然后提供详细的分析结果"
+            system_prompt = "您是一名时序数据库IoTDB专家，请根据提供的PR信息和本地iotdb源码进行分析，然后提供详细的分析结果。"
+            if enable_tools:
+                system_prompt += "\n您可以使用以下工具来读取和搜索 IoTDB 源码：read（读取文件）、glob（查找文件）、grep（搜索内容）。"
 
             print(f"🚀 正在使用 Anthropic API 发送分析请求...")
             print(f"   模型: claude-sonnet-4-5-20250929")
             print(f"   最大输出 tokens: {max_tokens:,}")
-            print(f"   Temperature: {temperature} (越低越一致)")
-            print(f"   使用缓存: 是")
+            print(f"   Temperature: {temperature}")
+            print(
+                f"   工具支持: {'启用 (read, glob, grep)' if enable_tools else '禁用'}"
+            )
+            print(f"   Prompt Caching: {'启用' if use_cache else '禁用'}")
 
-            # 使用流式传输（避免超时问题）
-            print(f"\n=== Claude 分析结果 ===\n")
+            # 初始化对话历史（如果使用缓存，在第一条消息上添加 cache_control）
+            if use_cache:
+                system = [
+                    {
+                        "type": "text",
+                        "text": system_prompt,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ]
+                messages = [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": query,
+                                "cache_control": {"type": "ephemeral"},
+                            }
+                        ],
+                    }
+                ]
+            else:
+                system = [
+                    {
+                        "type": "text",
+                        "text": system_prompt,
+                    }
+                ]
+                messages = [
+                    {
+                        "role": "user",
+                        "content": query,
+                    }
+                ]
 
             analysis_result = ""
-            usage_info = None
+            total_input_tokens = 0
+            total_output_tokens = 0
+            total_cache_creation_tokens = 0
+            total_cache_read_tokens = 0
+            tool_call_count = 0
 
-            # 准备缓存控制参数
-            cache_control: CacheControlEphemeralParam = CacheControlEphemeralParam(
-                type="ephemeral"
-            )
+            print(f"\n=== Claude 分析结果 ===\n")
 
-            # 准备类型化的参数
-            system_params: Iterable[TextBlockParam] = [
-                TextBlockParam(
-                    type="text", text=system_prompt, cache_control=cache_control
-                )
-            ]
+            # 工具调用循环
+            for round_num in range(max_tool_rounds):
+                stream_params = {
+                    "model": "claude-sonnet-4-5-20250929",
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                    "system": system,
+                    "messages": messages,
+                }
 
-            # 准备消息参数
-            message_params: Iterable[MessageParam] = [
-                MessageParam(
-                    role="user",
-                    content=[
-                        TextBlockParam(
-                            type="text", text=query, cache_control=cache_control
+                # 如果启用工具，添加工具定义
+                if enable_tools:
+                    stream_params["tools"] = self._get_tool_definitions()
+
+                # 如果启用缓存，添加必要的 header
+                if use_cache:
+                    stream_params["extra_headers"] = {
+                        "anthropic-beta": "prompt-caching-2024-07-31"
+                    }
+
+                # 使用流式 API
+                with client.messages.stream(**stream_params) as stream:
+                    # 实时打印流式输出
+                    for text in stream.text_stream:
+                        print(text, end="", flush=True)
+
+                    # 获取完整响应
+                    response = stream.get_final_message()
+
+                    # 更新 token 统计
+                    total_input_tokens += response.usage.input_tokens
+                    total_output_tokens += response.usage.output_tokens
+
+                    # 更新缓存统计（如果有）
+                    if hasattr(response.usage, "cache_creation_input_tokens"):
+                        total_cache_creation_tokens += (
+                            response.usage.cache_creation_input_tokens or 0
                         )
-                    ],
-                )
-            ]
+                    if hasattr(response.usage, "cache_read_input_tokens"):
+                        total_cache_read_tokens += (
+                            response.usage.cache_read_input_tokens or 0
+                        )
 
-            with client.messages.stream(
-                model="claude-sonnet-4-5-20250929",
-                max_tokens=max_tokens,
-                temperature=temperature,
-                system=system_params,
-                messages=message_params,
-                extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
-            ) as stream:
-                # 实时打印流式内容
-                for text in stream.text_stream:
-                    print(text, end="", flush=True)
-                    analysis_result += text
+                    # 检查是否有工具调用
+                    has_tool_use = any(
+                        block.type == "tool_use" for block in response.content
+                    )
 
-                # 获取最终的消息对象（包含 usage 信息）
-                message = stream.get_final_message()
-                usage_info = message.usage
+                    if has_tool_use:
+                        print()  # 工具调用前换行
+                        # 处理工具调用
+                        tool_results = []
+                        for block in response.content:
+                            if block.type == "tool_use":
+                                tool_call_count += 1
+                                tool_name = block.name
+                                tool_input = block.input
+                                tool_use_id = block.id
+
+                                print(f"🔧 [工具调用 #{tool_call_count}] {tool_name}")
+
+                                # 打印工具参数
+                                if tool_name == "read":
+                                    print(
+                                        f"   📄 读取文件: {tool_input.get('file_path', '')}"
+                                    )
+                                elif tool_name == "glob":
+                                    print(
+                                        f"   📁 查找文件: {tool_input.get('pattern', '')}"
+                                    )
+                                elif tool_name == "grep":
+                                    print(
+                                        f"   🔍 搜索: {tool_input.get('pattern', '')}"
+                                    )
+
+                                # 执行工具
+                                tool_result = self._execute_tool(tool_name, tool_input)
+
+                                # 构建工具结果消息
+                                if tool_result.get("success"):
+                                    # 成功的结果
+                                    result_content = json.dumps(
+                                        tool_result, ensure_ascii=False, indent=2
+                                    )
+                                else:
+                                    # 失败的结果
+                                    result_content = (
+                                        f"错误: {tool_result.get('error', '未知错误')}"
+                                    )
+
+                                tool_results.append(
+                                    {
+                                        "type": "tool_result",
+                                        "tool_use_id": tool_use_id,
+                                        "content": result_content,
+                                    }
+                                )
+
+                                print(f"   ✓ 执行完成\n")
+
+                        # 将 assistant 的响应添加到历史
+                        messages.append(
+                            {"role": "assistant", "content": response.content}
+                        )
+
+                        # 将工具结果添加到历史
+                        messages.append({"role": "user", "content": tool_results})
+
+                    else:
+                        # 没有工具调用，说明分析完成
+                        for block in response.content:
+                            if hasattr(block, "text"):
+                                analysis_result += block.text
+                        break
 
             print(f"\n\n=== 分析完成 ===\n")
 
-            # 打印 token 使用统计
-            if usage_info:
-                print(f"📊 Token 使用统计:")
-                print(f"   输入 tokens: {usage_info.input_tokens:,}")
-                if hasattr(usage_info, "cache_creation_input_tokens"):
-                    print(
-                        f"   缓存创建 tokens: {usage_info.cache_creation_input_tokens:,}"
-                    )
-                if hasattr(usage_info, "cache_read_input_tokens"):
-                    print(f"   缓存读取 tokens: {usage_info.cache_read_input_tokens:,}")
-                print(f"   输出 tokens: {usage_info.output_tokens:,}")
+            # 打印统计信息
+            print(f"📊 Token 使用统计:")
+            print(f"   输入 tokens: {total_input_tokens:,}")
+            print(f"   输出 tokens: {total_output_tokens:,}")
 
-                # 计算成本节约
-                if (
-                    hasattr(usage_info, "cache_read_input_tokens")
-                    and usage_info.cache_read_input_tokens > 0
-                ):
-                    cache_savings = (
-                        usage_info.cache_read_input_tokens * 0.9
-                    )  # 缓存节省90%成本
+            if use_cache:
+                print(f"   缓存创建 tokens: {total_cache_creation_tokens:,}")
+                print(f"   缓存读取 tokens: {total_cache_read_tokens:,}")
+                if total_cache_read_tokens > 0:
+                    # 缓存读取节省 90% 成本
+                    cache_savings = total_cache_read_tokens * 0.9
                     print(f"   💰 缓存节省: ~{cache_savings:,.0f} tokens 成本")
+
+            print(f"   总计 tokens: {total_input_tokens + total_output_tokens:,}")
+
+            if enable_tools:
+                print(f"   工具调用次数: {tool_call_count}")
 
             return {
                 "success": True,
                 "pr_number": pr_number,
                 "analysis": analysis_result,
                 "usage": {
-                    "input_tokens": usage_info.input_tokens if usage_info else 0,
-                    "output_tokens": usage_info.output_tokens if usage_info else 0,
-                    "cache_creation_tokens": (
-                        usage_info.cache_creation_input_tokens
-                        if usage_info
-                        and hasattr(usage_info, "cache_creation_input_tokens")
-                        else 0
-                    ),
-                    "cache_read_tokens": (
-                        usage_info.cache_read_input_tokens
-                        if usage_info and hasattr(usage_info, "cache_read_input_tokens")
-                        else 0
-                    ),
+                    "input_tokens": total_input_tokens,
+                    "output_tokens": total_output_tokens,
+                    "cache_creation_tokens": total_cache_creation_tokens,
+                    "cache_read_tokens": total_cache_read_tokens,
+                    "tool_calls": tool_call_count,
                 },
             }
 
@@ -360,7 +683,7 @@ class PRAnalysisWithClaude:
                 options=ClaudeAgentOptions(
                     system_prompt="您是一名时序数据库IoTDB专家，请根据提供的PR信息和本地iotdb源码进行分析，然后提供详细的分析结果。",
                     max_turns=50,
-                    cwd="/Users/shizy/projects/iotdb_issues_ai/iotdb",  # IoTDB 源码目录
+                    cwd=self.iotdb_source_dir,  # IoTDB 源码目录
                     allowed_tools=["read", "glob", "grep"],  # 允许读取文件
                 )
             ) as client:
@@ -468,7 +791,7 @@ async def main():
         print("=" * 60)
         print("请选择分析方式：")
         print("1. 使用 ClaudeSDKClient (支持工具调用、读取源码)")
-        print("2. 使用 Anthropic API (支持 cache_control、自定义 max_tokens)")
+        print("2. 使用 Anthropic API (支持工具调用 + cache_control)")
         print("=" * 60)
 
         # 获取用户选择
@@ -500,14 +823,13 @@ async def main():
                     print(f"\n详细错误:\n{result['error_details']}")
 
         else:  # choice == "2"
-            # 使用 Anthropic API
-            print("🚀 开始PR分析 (使用 Anthropic API + Cache Control)...")
+            # 使用 Anthropic API（默认启用工具和缓存）
+            print("🚀 开始PR分析 (使用 Anthropic API + 工具调用 + Cache Control)...")
 
-            # 可以自定义参数（这里使用默认值，也可以让用户输入）
             result = await analyzer.analyze_pr_with_anthropic(
                 pr_number=pr_number,
-                max_tokens=8192,  # 可调整
-                temperature=0.3,  # 0.3 保持约 90% 的输出一致性
+                enable_tools=True,  # 默认启用工具
+                use_cache=True,  # 默认启用缓存
             )
 
             if result["success"]:
