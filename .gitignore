@@ -9,6 +9,9 @@ chroma_db/
 .cache/
 models/
 
+# IoTDB目录
+iotdb/
+
 # PR分析结果
 *_analysis.json
 

@@ -14,9 +14,9 @@ A Python scraper that fetches merged pull requests from Apache IoTDB repository 
 ## Database Schema
 
 ### Tables:
-- `pull_requests`: Stores PR information
-- `comments`: Stores PR comments
-- `images`: Stores images from comments
+- `iotdb_prs_db`: Stores PR information
+- `pr_comments`: Stores PR comments
+- `pr_images`: Stores images from comments
 
 ## Setup Instructions
 
@@ -53,7 +53,7 @@ self.connection = mysql.connector.connect(
     host='localhost',
     user='your_username',
     password='your_password',
-    database='github_prs'
+    database='iotdb_prs_db'
 )
 ```
 

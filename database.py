@@ -32,7 +32,7 @@ class DatabaseManager:
                 host="localhost",
                 user="root",
                 password="1234",
-                database="github_prs",
+                database="iotdb_prs_db",
                 autocommit=True,
             )
             if self.connection.is_connected():
@@ -42,8 +42,8 @@ class DatabaseManager:
             raise
 
     def create_tables(self):
-        create_pull_requests_table = """
-        CREATE TABLE IF NOT EXISTS pull_requests (
+        create_iotdb_prs_table = """
+        CREATE TABLE IF NOT EXISTS iotdb_prs (
             number INT PRIMARY KEY,
             title VARCHAR(1000),
             body TEXT,
@@ -70,7 +70,7 @@ class DatabaseManager:
             created_at DATETIME,
             updated_at DATETIME,
             html_url VARCHAR(1000),
-            FOREIGN KEY (pr_number) REFERENCES pull_requests(number) ON DELETE CASCADE
+            FOREIGN KEY (pr_number) REFERENCES iotdb_prs(number) ON DELETE CASCADE
         )
         """
 
@@ -93,13 +93,13 @@ class DatabaseManager:
             pr_number INT,
             diff_content LONGTEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (pr_number) REFERENCES pull_requests(number) ON DELETE CASCADE
+            FOREIGN KEY (pr_number) REFERENCES iotdb_prs(number) ON DELETE CASCADE
         )
         """
 
         try:
             cursor = self.connection.cursor()
-            cursor.execute(create_pull_requests_table)
+            cursor.execute(create_iotdb_prs_table)
             cursor.execute(create_comments_table)
             cursor.execute(create_images_table)
             cursor.execute(create_diffs_table)
@@ -111,7 +111,7 @@ class DatabaseManager:
 
     def insert_pr(self, pr_data):
         query = """
-        INSERT INTO pull_requests (number, title, body, created_at, merged_at, user, labels, head, base, diff_url, comments_url, additions, deletions)
+        INSERT INTO iotdb_prs (number, title, body, created_at, merged_at, user, labels, head, base, diff_url, comments_url, additions, deletions)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
 
@@ -230,7 +230,7 @@ class DatabaseManager:
         """
         Check if a PR already exists in the database
         """
-        query = "SELECT 1 FROM pull_requests WHERE number = %s"
+        query = "SELECT 1 FROM iotdb_prs WHERE number = %s"
 
         try:
             cursor = self.connection.cursor()
@@ -256,7 +256,7 @@ class DatabaseManager:
 
             # 插入PR
             pr_insert = """
-            INSERT INTO pull_requests (number, title, body, created_at, merged_at, user, labels, head, base, diff_url, comments_url, additions, deletions)
+            INSERT INTO iotdb_prs (number, title, body, created_at, merged_at, user, labels, head, base, diff_url, comments_url, additions, deletions)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """
             cursor.execute(
@@ -322,7 +322,7 @@ class DatabaseManager:
 
     def delete_pr(self, pr_number):
         """删除PR（CASCADE自动删除相关数据）"""
-        query = "DELETE FROM pull_requests WHERE number = %s"
+        query = "DELETE FROM iotdb_prs WHERE number = %s"
         try:
             cursor = self.connection.cursor()
             cursor.execute(query, (pr_number,))

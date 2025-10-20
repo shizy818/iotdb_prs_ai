@@ -16,11 +16,11 @@ def setup_database():
             cursor = connection.cursor()
 
             # Create database
-            cursor.execute("CREATE DATABASE IF NOT EXISTS github_prs")
-            print("Database 'github_prs' created or already exists")
+            cursor.execute("CREATE DATABASE IF NOT EXISTS iotdb_prs_db")
+            print("Database 'iotdb_prs_db' created or already exists")
 
             # Grant privileges (optional)
-            # cursor.execute("GRANT ALL PRIVILEGES ON github_prs.* TO 'root'@'localhost'")
+            # cursor.execute("GRANT ALL PRIVILEGES ON iotdb_prs_db.* TO 'root'@'localhost'")
             # cursor.execute("FLUSH PRIVILEGES")
 
             print("Database setup completed")

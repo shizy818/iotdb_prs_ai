@@ -15,7 +15,7 @@ class GitHubClient:
             "Accept": "application/vnd.github.v3+json",
         }
 
-    def get_merged_pull_requests(
+    def get_merged_iotdb_prs(
         self, owner="apache", repo="iotdb", since_date=None, days=30
     ):
         """

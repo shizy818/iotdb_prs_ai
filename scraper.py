@@ -27,7 +27,7 @@ class PRScraper:
         Scrape merged pull requests and store them in the database
         """
         print(f"Fetching merged PRs from the last {days_back} days...")
-        prs = self.github.get_merged_pull_requests(days=days_back)
+        prs = self.github.get_merged_iotdb_prs(days=days_back)
 
         if not prs:
             print("No merged PRs found")
@@ -174,9 +174,7 @@ class PRScraper:
         """
         try:
             print(f"Starting PR scraper from {since_date_str} at {datetime.now()}")
-            prs = self.github.get_merged_pull_requests(
-                since_date=since_date_str, days=days
-            )
+            prs = self.github.get_merged_iotdb_prs(since_date=since_date_str, days=days)
 
             if not prs:
                 print("No merged PRs found")
