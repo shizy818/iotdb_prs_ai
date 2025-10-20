@@ -31,7 +31,7 @@ class VectorStoreManager:
         # 初始化embedding模型 - 使用轻量级的中文模型
         print("正在加载embedding模型...")
         self.embeddings = HuggingFaceEmbeddings(
-            model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+            model_name="./models/paraphrase-multilingual-MiniLM-L12-v2",
             model_kwargs={"device": "cpu"},
             encode_kwargs={"normalize_embeddings": True},
         )
