@@ -15,9 +15,7 @@ class GitHubClient:
             "Accept": "application/vnd.github.v3+json",
         }
 
-    def get_merged_iotdb_prs(
-        self, owner="apache", repo="iotdb", since_date=None, days=30
-    ):
+    def get_iotdb_prs(self, owner="apache", repo="iotdb", since_date=None, days=30):
         """
         Fetch merged pull requests from the last N days or since a specific date
         """
@@ -72,7 +70,7 @@ class GitHubClient:
 
         return prs
 
-    def get_pull_request_details(self, pr_number, owner="apache", repo="iotdb"):
+    def get_iotdb_pr(self, pr_number, owner="apache", repo="iotdb"):
         """
         Get detailed information about a specific pull request
         """

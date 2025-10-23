@@ -22,40 +22,6 @@ class PRScraper:
         self.db = DatabaseManager()
         self.github = GitHubClient(github_token)
 
-    def scrape_merged_prs(self, days_back=30):
-        """
-        Scrape merged pull requests and store them in the database
-        """
-        print(f"Fetching merged PRs from the last {days_back} days...")
-        prs = self.github.get_merged_iotdb_prs(days=days_back)
-
-        if not prs:
-            print("No merged PRs found")
-            return
-
-        print(f"Found {len(prs)} merged PRs")
-
-        for pr in prs:
-            self.process_pr(pr)
-
-    def scrape_single_pr(self, pr_number):
-        """
-        Scrape a single pull request by number
-        """
-        print(f"Fetching PR #{pr_number}...")
-        pr_details, error = self.github.get_pull_request_details(pr_number)
-
-        if error:
-            print(f"Could not fetch PR #{pr_number}: {error}")
-            return False
-
-        # Check if PR is merged
-        if not pr_details.get("merged_at"):
-            print(f"PR #{pr_number} is not merged, skipping...")
-            return False
-
-        return self.process_pr(pr_details)
-
     def process_pr(self, pr):
         """
         Process a single pull request
@@ -157,7 +123,20 @@ class PRScraper:
         """
         try:
             print(f"Starting PR scraper for #{pr_number} at {datetime.now()}")
-            success = self.scrape_single_pr(pr_number)
+            print(f"Fetching PR #{pr_number}...")
+
+            pr, error = self.github.get_iotdb_pr(pr_number)
+
+            if error:
+                print(f"Could not fetch PR #{pr_number}: {error}")
+                return
+
+            # Check if PR is merged
+            if not pr.get("merged_at"):
+                print(f"PR #{pr_number} is not merged, skipping...")
+                return
+
+            success = self.process_pr(pr)
             if success:
                 print(f"Successfully scraped PR #{pr_number}")
             else:
@@ -174,7 +153,7 @@ class PRScraper:
         """
         try:
             print(f"Starting PR scraper from {since_date_str} at {datetime.now()}")
-            prs = self.github.get_merged_iotdb_prs(since_date=since_date_str, days=days)
+            prs = self.github.get_iotdb_prs(since_date=since_date_str, days=days)
 
             if not prs:
                 print("No merged PRs found")
@@ -197,7 +176,19 @@ class PRScraper:
         """
         try:
             print(f"Starting PR scraper at {datetime.now()}")
-            self.scrape_merged_prs(days_back=days_back)
+            print(f"Fetching merged PRs from the last {days_back} days...")
+
+            prs = self.github.get_iotdb_prs(days=days_back)
+
+            if not prs:
+                print("No merged PRs found")
+                return
+
+            print(f"Found {len(prs)} merged PRs")
+
+            for pr in prs:
+                self.process_pr(pr)
+
             print(f"Scraping completed at {datetime.now()}")
         except Exception as e:
             print(f"Error during scraping: {e}")
