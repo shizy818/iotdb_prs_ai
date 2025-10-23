@@ -1,5 +1,4 @@
 import json
-from datetime import datetime
 from database import DatabaseManager
 from github_client import GitHubClient
 

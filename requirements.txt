@@ -5,6 +5,8 @@ langchain==0.3.0
 langchain-community==0.3.0
 langchain-huggingface
 langchain-chroma
+langchain-anthropic
+langchain_core
 chromadb>=0.5.23
 sentence-transformers==3.0.1
 numpy~=1.26.4
