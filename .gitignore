@@ -19,3 +19,6 @@ iotdb/
 test/*.json
 test/__pycache__/
 test/.pytest_cache/
+
+# 配置文件（包含敏感信息）
+config.py

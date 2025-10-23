@@ -2,6 +2,7 @@ import mysql.connector
 from mysql.connector import Error
 import os
 from datetime import datetime
+from config import DEFAULT_DB_CONFIG
 
 
 def convert_iso_to_mysql_datetime(iso_datetime):
@@ -29,14 +30,14 @@ class DatabaseManager:
     def connect(self):
         try:
             self.connection = mysql.connector.connect(
-                host="localhost",
-                user="root",
-                password="1234",
-                database="iotdb_prs_db",
+                host=DEFAULT_DB_CONFIG["host"],
+                user=DEFAULT_DB_CONFIG["user"],
+                password=DEFAULT_DB_CONFIG["password"],
+                database=DEFAULT_DB_CONFIG["database"],
                 autocommit=True,
             )
             if self.connection.is_connected():
-                print("Connected to MySQL database")
+                print(f"Connected to MySQL database: {DEFAULT_DB_CONFIG['database']}")
         except Error as e:
             print(f"Error connecting to MySQL: {e}")
             raise

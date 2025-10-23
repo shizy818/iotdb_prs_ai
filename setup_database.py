@@ -1,26 +1,31 @@
 import mysql.connector
 from mysql.connector import Error
+from config import DEFAULT_DB_CONFIG
 
 
 def setup_database():
     """
-    Create the database and user for the PR scraper
+    Create the database for the PR scraper
+    使用 config.py 中的数据库配置
     """
     try:
-        # Connect to MySQL server
+        # Connect to MySQL server (without specifying database)
         connection = mysql.connector.connect(
-            host="localhost", user="root", password="1234"
+            host=DEFAULT_DB_CONFIG["host"],
+            user=DEFAULT_DB_CONFIG["user"],
+            password=DEFAULT_DB_CONFIG["password"],
         )
 
         if connection.is_connected():
             cursor = connection.cursor()
 
             # Create database
-            cursor.execute("CREATE DATABASE IF NOT EXISTS iotdb_prs_db")
-            print("Database 'iotdb_prs_db' created or already exists")
+            database_name = DEFAULT_DB_CONFIG["database"]
+            cursor.execute(f"CREATE DATABASE IF NOT EXISTS {database_name}")
+            print(f"Database '{database_name}' created or already exists")
 
-            # Grant privileges (optional)
-            # cursor.execute("GRANT ALL PRIVILEGES ON iotdb_prs_db.* TO 'root'@'localhost'")
+            # Grant privileges (optional - if needed)
+            # cursor.execute(f"GRANT ALL PRIVILEGES ON {database_name}.* TO '{DEFAULT_DB_CONFIG['user']}'@'{DEFAULT_DB_CONFIG['host']}'")
             # cursor.execute("FLUSH PRIVILEGES")
 
             print("Database setup completed")

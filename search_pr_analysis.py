@@ -225,7 +225,7 @@ def main():
         return 0
 
     except KeyboardInterrupt:
-        print("\n\n⏹️ 用户中断操作")
+        print("\n⏹️ 用户中断操作")
         return 1
     except Exception as e:
         print(f"\n❌ 错误: {e}")

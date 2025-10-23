@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import asyncio
 import json
-from pr_analysis_with_claude import PRAnalysisWithClaude
+from pr_analysis_langchain import PRAnalysisLangChain
 from vector_store import VectorStoreManager
 
 
@@ -25,7 +25,7 @@ async def demo_workflow():
     # 步骤1: 初始化分析器和向量数据库
     print("\n步骤1: 初始化PR分析器和向量数据库")
     print("-" * 80)
-    analyzer = PRAnalysisWithClaude()
+    analyzer = PRAnalysisLangChain()
     vector_store = VectorStoreManager()
 
     # 步骤2: 分析一个PR
@@ -54,7 +54,7 @@ async def demo_workflow():
         )
     else:
         print("正在调用Claude分析PR...")
-        result = await analyzer.analyze_pr_with_anthropic(pr_number=16487)
+        result = analyzer.analyze_pr(pr_number=16487)
 
         if result["success"]:
             print(f"✅ 分析成功!")
@@ -156,7 +156,7 @@ if __name__ == "__main__":
             # 完整演示模式
             asyncio.run(demo_workflow())
     except KeyboardInterrupt:
-        print("\n\n⏹️ 用户中断操作")
+        print("\n⏹️ 用户中断操作")
     except Exception as e:
         print(f"\n❌ 发生错误: {e}")
         import traceback

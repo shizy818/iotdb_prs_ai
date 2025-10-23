@@ -1,6 +1,7 @@
 import json
 from database import DatabaseManager
 from github_client import GitHubClient
+from config import GITHUB_TOKEN
 
 
 """
@@ -229,9 +230,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    # GitHub token
-    GITHUB_TOKEN = "your_github_token_here"
-
+    # 从 config.py 读取 GitHub token
     scraper = PRScraper(GITHUB_TOKEN)
 
     if args.number:

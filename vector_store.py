@@ -5,6 +5,7 @@
 """
 
 import os
+from pathlib import Path
 from typing import Dict, List, Optional
 from datetime import datetime
 
@@ -30,8 +31,17 @@ class VectorStoreManager:
 
         # 初始化embedding模型 - 使用轻量级的中文模型
         print("正在加载embedding模型...")
+        # 获取项目根目录（vector_store.py所在目录）
+        project_root = Path(__file__).parent
+        model_path = project_root / "models" / "paraphrase-multilingual-MiniLM-L12-v2"
+
+        if not model_path.exists():
+            raise FileNotFoundError(
+                f"模型文件不存在: {model_path}\n" f"请确保模型已下载到正确位置"
+            )
+
         self.embeddings = HuggingFaceEmbeddings(
-            model_name="./models/paraphrase-multilingual-MiniLM-L12-v2",
+            model_name=str(model_path),
             model_kwargs={"device": "cpu"},
             encode_kwargs={"normalize_embeddings": True},
         )

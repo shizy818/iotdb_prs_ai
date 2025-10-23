@@ -1,11 +1,21 @@
+#!/usr/bin/env python3
+
+import sys
+from pathlib import Path
+
+# 添加父目录到Python路径
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 # legal-agent.py
 import asyncio
 from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
+from config import ANTHROPIC_BASE_URL, ANTHROPIC_API_KEY
 
-import os
-
-os.environ["ANTHROPIC_BASE_URL"] = "https://open.bigmodel.cn/api/anthropic"
-os.environ["ANTHROPIC_API_KEY"] = "9be7a6c89bfc4cd99efb491c77140aa4.GI2bDndwSd7hqy69"
+# Claude SDK 配置
+claude_config = {
+    "ANTHROPIC_BASE_URL": ANTHROPIC_BASE_URL,
+    "ANTHROPIC_API_KEY": ANTHROPIC_API_KEY,
+}
 
 
 async def main():
@@ -14,6 +24,7 @@ async def main():
             permission_mode="plan",
             system_prompt="您是一名时序数据库IoTDB专家。",
             max_turns=2,
+            env=claude_config,
         )
     ) as client:
         # 发送查询

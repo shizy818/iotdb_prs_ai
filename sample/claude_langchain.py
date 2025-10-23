@@ -4,13 +4,20 @@
 相比 claude_sample.py 更加简洁和灵活
 """
 
+import sys
+from pathlib import Path
+
+# 添加父目录到Python路径
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 import os
 from langchain_anthropic import ChatAnthropic
 from langchain.schema import HumanMessage, SystemMessage
+from config import ANTHROPIC_BASE_URL, ANTHROPIC_API_KEY
 
 # 配置智谱AI的Anthropic兼容接口
-os.environ["ANTHROPIC_BASE_URL"] = "https://open.bigmodel.cn/api/anthropic"
-os.environ["ANTHROPIC_API_KEY"] = "9be7a6c89bfc4cd99efb491c77140aa4.GI2bDndwSd7hqy69"
+os.environ["ANTHROPIC_BASE_URL"] = ANTHROPIC_BASE_URL
+os.environ["ANTHROPIC_API_KEY"] = ANTHROPIC_API_KEY
 def main():
     """使用 LangChain 调用 Claude"""
 
