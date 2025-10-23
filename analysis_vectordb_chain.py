@@ -6,10 +6,11 @@
 使用管道操作符: analyze_pr | save_to_vector_store
 支持多种框架: langchain, claude_agent_sdk, anthropic
 """
+import os
 import asyncio
-import json
-from datetime import datetime
-from typing import Dict, Optional, Literal
+import argparse
+from datetime import datetime, timedelta
+from typing import Dict, Optional, Literal, List
 
 from langchain_core.runnables import RunnableLambda, RunnablePassthrough
 
@@ -17,6 +18,9 @@ from pr_analysis_langchain import PRAnalysisLangChain
 from pr_analysis_cc_sdk import PRAnalysisClaudeAgentSDK
 from pr_analysis_anthropic import PRAnalysisAnthropic
 from vector_store import VectorStoreManager
+from database import DatabaseManager
+
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 # 框架类型定义
 FrameworkType = Literal["langchain", "claude_agent_sdk", "anthropic"]
@@ -43,13 +47,10 @@ class PRAnalysisRunnable:
         # 根据框架类型创建对应的 analyzer
         if framework == "langchain":
             self.analyzer = PRAnalysisLangChain()
-            self.is_async = False
         elif framework == "claude_agent_sdk":
             self.analyzer = PRAnalysisClaudeAgentSDK()
-            self.is_async = True
         elif framework == "anthropic":
             self.analyzer = PRAnalysisAnthropic()
-            self.is_async = True
         else:
             raise ValueError(f"不支持的框架: {framework}")
 
@@ -62,19 +63,12 @@ class PRAnalysisRunnable:
         print(f"   使用框架: {self.framework}")
         print(f"   工具调用: {'启用' if self.enable_tools else '禁用'}\n")
 
-        # 根据是否异步调用不同的方法
-        if self.is_async:
-            # 对于异步的 analyzer，需要在事件循环中运行
-            result = asyncio.run(
-                self.analyzer.analyze_pr(
-                    pr_number=pr_number, enable_tools=self.enable_tools
-                )
-            )
-        else:
-            # LangChain 是同步的
-            result = self.analyzer.analyze_pr(
+        # 对于异步的 analyzer，需要在事件循环中运行
+        result = asyncio.run(
+            self.analyzer.analyze_pr(
                 pr_number=pr_number, enable_tools=self.enable_tools
             )
+        )
 
         if result.get("success"):
             print(f"✅ PR 分析完成\n")
@@ -127,7 +121,7 @@ class VectorStoreRunnable:
             # 检查是否已存在
             if self.vector_store.pr_exists(pr_number):
                 print(f"⚠️ PR #{pr_number} 已存在，更新记录...")
-                self.vector_store.delete_pr(pr_number)
+                self.vector_store.delete_pr_analysis(pr_number)
 
             # 添加到向量数据库
             success = self.vector_store.add_pr_analysis(
@@ -262,31 +256,228 @@ def run_pr_analysis(
     return result
 
 
-# 示例用法
-if __name__ == "__main__":
-    print("🚀 PR 分析 + 向量数据库存储 Chain 示例")
-    print("使用 LangChain LCEL: analyze | vector_store")
-    print("支持多种框架: langchain, claude_agent_sdk, anthropic")
-    print("=" * 60)
+def get_prs_by_date_range(
+    since_date: Optional[str] = None,
+    days: Optional[int] = None,
+) -> List[int]:
+    """
+    从数据库中获取指定日期范围内已合并的 PR 编号列表
 
-    # 示例：使用不同的框架
-    pr_number = 16607
-    result = run_pr_analysis(
-        pr_number=pr_number,
-        framework="claude_agent_sdk", # 可选: 'langchain', 'claude_agent_sdk', 'anthropic'
-        enable_tools=False,
-        save_to_vector=False,
+    Args:
+        since_date: 起始日期 (格式: YYYY-MM-DD)，必须与 days 一起使用
+        days: 天数范围
+
+    Returns:
+        PR 编号列表
+    """
+    db = DatabaseManager()
+
+    try:
+        # 计算日期范围
+        if not days:
+            raise ValueError("必须指定 days 参数")
+
+        if since_date:
+            # 指定了 since_date 和 days
+            start_date = since_date
+            end_date = (
+                datetime.strptime(since_date, "%Y-%m-%d") + timedelta(days=days)
+            ).strftime("%Y-%m-%d")
+        else:
+            # 只指定了 days，最近 N 天
+            start_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+            end_date = datetime.now().strftime("%Y-%m-%d")
+
+        # 从数据库查询
+        pr_numbers = db.get_merged_prs_in_range(start_date, end_date)
+
+        print(f"📅 日期范围: {start_date} 到 {end_date}")
+        print(f"📊 找到 {len(pr_numbers)} 个已合并的 PR\n")
+
+        return pr_numbers
+
+    finally:
+        db.close()
+
+
+def batch_analyze_prs(
+    pr_numbers: List[int],
+    framework: FrameworkType = "langchain",
+    enable_tools: bool = True,
+    save_to_vector: bool = True,
+) -> Dict:
+    """
+    批量分析多个 PR
+
+    Args:
+        pr_numbers: PR 编号列表
+        framework: 分析框架
+        enable_tools: 是否启用工具调用
+        save_to_vector: 是否保存到向量数据库
+
+    Returns:
+        包含成功和失败统计的结果字典
+    """
+    print(f"\n{'='*80}")
+    print(f"🚀 批量分析 {len(pr_numbers)} 个 PR")
+    print(f"{'='*80}\n")
+
+    results = {
+        "total": len(pr_numbers),
+        "success": 0,
+        "failed": 0,
+        "failed_prs": [],
+    }
+
+    # 创建一个 Chain 对象，复用于所有 PR
+    print(f"🔧 创建 PR 分析 Chain...")
+    print(f"   框架: {framework}")
+    print(f"   工具调用: {'启用' if enable_tools else '禁用'}")
+    print(f"   向量存储: {'启用' if save_to_vector else '禁用'}")
+    print()
+
+    chain = create_pr_analysis_chain(
+        framework=framework, enable_tools=enable_tools, save_to_vector=save_to_vector
     )
 
-    # 打印结果摘要
-    print(f"\n📋 结果摘要:")
-    print(f"  PR 编号: {result.get('pr_number')}")
-    print(f"  PR 标题: {result.get('pr_title')}")
-    print(f"  分析成功: {result.get('success')}")
-    print(f"  向量存储: {result.get('vector_stored', False)}")
+    for i, pr_number in enumerate(pr_numbers, 1):
+        print(f"\n{'='*80}")
+        print(f"进度: {i}/{len(pr_numbers)} - PR #{pr_number}")
+        print(f"{'='*80}\n")
 
-    if result.get("success"):
-        print(f"\n📄 分析内容预览:")
-        analysis = result.get("analysis", "")
-        preview = analysis[:500] + "..." if len(analysis) > 500 else analysis
-        print(preview)
+        try:
+            # 使用复用的 chain 对象
+            result = chain.invoke({"pr_number": pr_number})
+
+            if result.get("success"):
+                results["success"] += 1
+                print(f"✅ PR #{pr_number} 分析成功\n")
+            else:
+                results["failed"] += 1
+                results["failed_prs"].append(pr_number)
+                print(f"❌ PR #{pr_number} 分析失败\n")
+
+        except Exception as e:
+            results["failed"] += 1
+            results["failed_prs"].append(pr_number)
+            print(f"❌ PR #{pr_number} 处理异常: {e}\n")
+
+    print(f"\n{'='*80}")
+    print(f"📊 批量分析完成")
+    print(f"{'='*80}")
+    print(f"总计: {results['total']}")
+    print(f"成功: {results['success']}")
+    print(f"失败: {results['failed']}")
+    if results["failed_prs"]:
+        print(f"失败的PR: {results['failed_prs']}")
+    print(f"{'='*80}\n")
+
+    return results
+
+
+# 主方法
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="PR 分析 + 向量数据库存储工具 (支持批量处理)"
+    )
+
+    # 日期范围参数
+    parser.add_argument(
+        "--since_date",
+        type=str,
+        help="起始日期 (格式: YYYY-MM-DD)，必须与 --days 一起使用",
+    )
+    parser.add_argument(
+        "--days",
+        type=int,
+        help="天数范围（必需）。单独使用时表示最近N天；与 --since_date 一起使用时表示从起始日期开始的N天",
+    )
+
+    # PR 编号参数（单个 PR）
+    parser.add_argument(
+        "--pr_number",
+        type=int,
+        help="单个 PR 编号（与日期范围参数互斥）",
+    )
+
+    # 框架选择
+    parser.add_argument(
+        "--framework",
+        type=str,
+        choices=["langchain", "claude_agent_sdk", "anthropic"],
+        default="claude_agent_sdk",
+        help="分析框架 (默认: claude_agent_sdk)",
+    )
+
+    # 工具和存储选项
+    parser.add_argument(
+        "--no_tools",
+        action="store_true",
+        help="禁用工具调用",
+    )
+    parser.add_argument(
+        "--no_vector",
+        action="store_true",
+        help="不保存到向量数据库",
+    )
+
+    args = parser.parse_args()
+
+    print("🚀 PR 分析 + 向量数据库存储工具")
+    print("使用 LangChain LCEL: analyze | vector_store")
+    print("支持多种框架: langchain, claude_agent_sdk, anthropic")
+    print("=" * 80)
+    print()
+
+    enable_tools = not args.no_tools
+    save_to_vector = not args.no_vector
+
+    # 判断是单个 PR 还是批量处理
+    if args.pr_number:
+        # 单个 PR 模式
+        if args.since_date or args.days:
+            print("❌ 错误: --pr_number 不能与 --since_date 或 --days 同时使用")
+            exit(1)
+
+        result = run_pr_analysis(
+            pr_number=args.pr_number,
+            framework=args.framework,
+            enable_tools=enable_tools,
+            save_to_vector=save_to_vector,
+        )
+
+        # 打印结果摘要
+        print(f"\n📋 结果摘要:")
+        print(f"  PR 编号: {result.get('pr_number')}")
+        print(f"  PR 标题: {result.get('pr_title')}")
+        print(f"  分析成功: {result.get('success')}")
+        print(f"  向量存储: {result.get('vector_stored', False)}")
+
+        if result.get("success"):
+            print(f"\n📄 分析内容预览:")
+            analysis = result.get("analysis", "")
+            preview = analysis[:500] + "..." if len(analysis) > 500 else analysis
+            print(preview)
+
+    elif args.days:
+        # 批量处理模式
+        pr_numbers = get_prs_by_date_range(
+            since_date=args.since_date,
+            days=args.days,
+        )
+
+        if not pr_numbers:
+            print("❌ 未找到符合条件的 PR")
+            exit(0)
+
+        results = batch_analyze_prs(
+            pr_numbers=pr_numbers,
+            framework=args.framework,
+            enable_tools=enable_tools,
+            save_to_vector=save_to_vector,
+        )
+
+    else:
+        print("❌ 错误: 必须指定 --pr_number 或 --days")
+        parser.print_help()
+        exit(1)

@@ -335,6 +335,35 @@ class DatabaseManager:
         finally:
             cursor.close()
 
+    def get_merged_prs_in_range(self, start_date_str, end_date_str):
+        """
+        获取指定日期范围内已合并的 PR 编号列表
+
+        Args:
+            start_date_str: 起始日期字符串 (格式: YYYY-MM-DD)
+            end_date_str: 结束日期字符串 (格式: YYYY-MM-DD)
+
+        Returns:
+            PR 编号列表，按 merged_at 降序排列
+        """
+        query = """
+        SELECT number FROM iotdb_prs
+        WHERE merged_at >= %s
+        AND merged_at <= %s
+        AND merged_at IS NOT NULL
+        ORDER BY merged_at DESC
+        """
+        try:
+            cursor = self.connection.cursor()
+            cursor.execute(query, (start_date_str, end_date_str))
+            results = cursor.fetchall()
+            return [row[0] for row in results]
+        except Error as e:
+            print(f"查询PR失败: {e}")
+            return []
+        finally:
+            cursor.close()
+
     def close(self):
         if self.connection and self.connection.is_connected():
             self.connection.close()

@@ -1,6 +1,7 @@
 import schedule
 import time
-from datetime import datetime
+
+from config import GITHUB_TOKEN
 from scraper import PRScraper
 import logging
 
@@ -62,9 +63,6 @@ class PRScraperScheduler:
 
 
 if __name__ == "__main__":
-    # GitHub token
-    GITHUB_TOKEN = "your_github_token_here"
-
     scheduler = PRScraperScheduler(GITHUB_TOKEN)
 
     # Run the scheduler

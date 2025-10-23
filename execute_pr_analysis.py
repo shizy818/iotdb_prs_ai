@@ -58,7 +58,9 @@ async def analyze_with_langchain(
     print(f"📦 使用 LangChain 框架...")
     analyzer = PRAnalysisLangChain()
     try:
-        result = analyzer.analyze_pr(pr_number=pr_number, enable_tools=enable_tools)
+        result = await analyzer.analyze_pr(
+            pr_number=pr_number, enable_tools=enable_tools
+        )
         return result
     finally:
         analyzer.close()

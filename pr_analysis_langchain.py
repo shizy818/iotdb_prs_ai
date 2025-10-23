@@ -332,7 +332,7 @@ class PRAnalysisLangChain:
         """
         return get_pr_by_number(pr_number, self.db)
 
-    def analyze_pr(
+    async def analyze_pr(
         self, pr_number: Optional[int] = None, enable_tools: bool = True
     ) -> Dict:
         """
@@ -476,7 +476,7 @@ async def main():
         print("\n" + "=" * 60)
         print("🚀 开始PR分析 (使用 LongChain + 工具调用)...")
 
-        result = analyzer.analyze_pr(pr_number=pr_number, enable_tools=True)
+        result = await analyzer.analyze_pr(pr_number=pr_number, enable_tools=True)
 
         # 打印结果
         print(f"\n{'='*80}")
