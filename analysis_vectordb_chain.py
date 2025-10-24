@@ -257,15 +257,15 @@ def run_pr_analysis(
 
 
 def get_prs_by_date_range(
-    since_date: Optional[str] = None,
-    days: Optional[int] = None,
+    since_date: str,
+    days: int = 7,
 ) -> List[int]:
     """
     从数据库中获取指定日期范围内已合并的 PR 编号列表
 
     Args:
-        since_date: 起始日期 (格式: YYYY-MM-DD)，必须与 days 一起使用
-        days: 天数范围
+        since_date: 起始日期 (格式: YYYY-MM-DD)，必需
+        days: 天数范围，默认 7 天
 
     Returns:
         PR 编号列表
@@ -274,21 +274,12 @@ def get_prs_by_date_range(
 
     try:
         # 计算日期范围
-        if not days:
-            raise ValueError("必须指定 days 参数")
+        start_date = since_date
+        end_date = (
+            datetime.strptime(since_date, "%Y-%m-%d") + timedelta(days=days)
+        ).strftime("%Y-%m-%d")
 
-        if since_date:
-            # 指定了 since_date 和 days
-            start_date = since_date
-            end_date = (
-                datetime.strptime(since_date, "%Y-%m-%d") + timedelta(days=days)
-            ).strftime("%Y-%m-%d")
-        else:
-            # 只指定了 days，最近 N 天
-            start_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
-            end_date = datetime.now().strftime("%Y-%m-%d")
-
-        # 从数据库查询
+        # 从数据库查询, [start_date, end_date)
         pr_numbers = db.get_merged_prs_in_range(start_date, end_date)
 
         print(f"📅 日期范围: {start_date} 到 {end_date}")
@@ -385,12 +376,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "--since_date",
         type=str,
-        help="起始日期 (格式: YYYY-MM-DD)，必须与 --days 一起使用",
+        help="起始日期 (格式: YYYY-MM-DD)，用于批量处理时必需",
     )
     parser.add_argument(
         "--days",
         type=int,
-        help="天数范围（必需）。单独使用时表示最近N天；与 --since_date 一起使用时表示从起始日期开始的N天",
+        default=7,
+        help="从起始日期开始的天数范围 (默认: 7)",
     )
 
     # PR 编号参数（单个 PR）
@@ -435,8 +427,8 @@ if __name__ == "__main__":
     # 判断是单个 PR 还是批量处理
     if args.pr_number:
         # 单个 PR 模式
-        if args.since_date or args.days:
-            print("❌ 错误: --pr_number 不能与 --since_date 或 --days 同时使用")
+        if args.since_date:
+            print("❌ 错误: --pr_number 不能与 --since_date 同时使用")
             exit(1)
 
         result = run_pr_analysis(
@@ -459,7 +451,7 @@ if __name__ == "__main__":
             preview = analysis[:500] + "..." if len(analysis) > 500 else analysis
             print(preview)
 
-    elif args.days:
+    elif args.since_date:
         # 批量处理模式
         pr_numbers = get_prs_by_date_range(
             since_date=args.since_date,
@@ -478,6 +470,6 @@ if __name__ == "__main__":
         )
 
     else:
-        print("❌ 错误: 必须指定 --pr_number 或 --days")
+        print("❌ 错误: 必须指定 --pr_number 或 --since_date")
         parser.print_help()
         exit(1)

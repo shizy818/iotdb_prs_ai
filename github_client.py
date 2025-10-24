@@ -62,21 +62,24 @@ class GitHubClient:
 
         return pr
 
-    def get_iotdb_prs(self, owner="apache", repo="iotdb", since_date=None, days=30):
+    def get_iotdb_prs(
+        self, owner="apache", repo="iotdb", since_date="2024-01-01", days=7
+    ):
         """
-        Fetch merged pull requests from the last N days or since a specific date
+        Fetch merged pull requests from since_date for N days
         Uses GitHub GraphQL API v4 with search for efficient data fetching
+
+        Args:
+            since_date: Start date in YYYY-MM-DD format (required)
+            days: Number of days from since_date (default: 30)
         """
-        # Calculate date range
-        start_date = None
-        end_date = None
         if since_date is None:
-            start_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
-            end_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
-        elif isinstance(since_date, str):
-            start_dt = datetime.strptime(since_date, "%Y-%m-%d")
-            start_date = start_dt.strftime("%Y-%m-%d")
-            end_date = (start_dt + timedelta(days=days - 1)).strftime("%Y-%m-%d")
+            raise ValueError("since_date is required")
+
+        # Calculate date range, [start_date, end_date]
+        start_dt = datetime.strptime(since_date, "%Y-%m-%d")
+        start_date = start_dt.strftime("%Y-%m-%d")
+        end_date = (start_dt + timedelta(days=days - 1)).strftime("%Y-%m-%d")
 
         # GraphQL API endpoint
         url = "https://api.github.com/graphql"

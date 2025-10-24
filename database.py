@@ -349,8 +349,7 @@ class DatabaseManager:
         query = """
         SELECT number FROM iotdb_prs
         WHERE merged_at >= %s
-        AND merged_at <= %s
-        AND merged_at IS NOT NULL
+        AND merged_at < %s
         ORDER BY merged_at DESC
         """
         try:

@@ -8,11 +8,7 @@ from config import GITHUB_TOKEN
 1. 抓取单个PR
 python scraper.py --number 12345
 
-2. 抓取过去N天的PR（默认30天）
-python scraper.py --days_back 30
-python scraper.py  # 使用默认值
-
-3. 抓取从某天开始的N天内PR
+2. 抓取从某天开始的N天内PR
 python scraper.py --since_date 2024-01-01 --days 7
 """
 
@@ -167,31 +163,6 @@ class PRScraper:
         finally:
             self.db.close()
 
-    def run_back_days(self, days_back=30):
-        """
-        Run the scraper for time range
-        """
-        try:
-            print(f"Starting PR scraper at {datetime.now()}")
-            print(f"Fetching merged PRs from the last {days_back} days...")
-
-            prs = self.github.get_iotdb_prs(days=days_back)
-
-            if not prs:
-                print("No merged PRs found")
-                return
-
-            print(f"Found {len(prs)} merged PRs")
-
-            for pr in prs:
-                self.process_pr(pr)
-
-            print(f"Scraping completed at {datetime.now()}")
-        except Exception as e:
-            print(f"Error during scraping: {e}")
-        finally:
-            self.db.close()
-
 
 if __name__ == "__main__":
     import argparse
@@ -199,13 +170,7 @@ if __name__ == "__main__":
 
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="GitHub PR Scraper")
-    parser.add_argument("--number", type=int, help="Scrape a single PR by number")
-    parser.add_argument(
-        "--days_back",
-        type=int,
-        default=30,
-        help="Scrape PRs from the last N days (default: 30)",
-    )
+    parser.add_argument("--pr_number", type=int, help="Scrape a single PR by number")
     parser.add_argument(
         "--since_date", type=str, help="Start date in YYYY-MM-DD format"
     )
@@ -221,12 +186,14 @@ if __name__ == "__main__":
     # 从 config.py 读取 GitHub token
     scraper = PRScraper(GITHUB_TOKEN)
 
-    if args.number:
+    if args.pr_number:
         # Scrape a single PR
-        scraper.run_single_pr(args.number)
+        scraper.run_single_pr(args.pr_number)
     elif args.since_date:
         # Scrape from a specific start date
         scraper.run_by_date_range(args.since_date, args.days)
     else:
-        # Scrape by days back
-        scraper.run_back_days(days_back=args.days_back)
+        print("Error: Must specify either --pr_number or --since_date")
+        print("Examples:")
+        print("  python scraper.py --pr_number 12345")
+        print("  python scraper.py --since_date 2024-01-01 --days 7")

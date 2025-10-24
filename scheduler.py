@@ -1,5 +1,6 @@
 import schedule
 import time
+from datetime import datetime, timedelta
 
 from config import GITHUB_TOKEN
 from scraper import PRScraper
@@ -24,12 +25,14 @@ class PRScraperScheduler:
 
     def daily_scrape(self):
         """
-        Daily scraping task
+        Daily scraping task - scrape PRs from yesterday
         """
         self.logger.info("Starting daily PR scraping task")
         try:
             scraper = PRScraper(self.github_token)
-            scraper.run(days_back=1)  # Scrape last 1 day
+            # Scrape PRs from yesterday (1 day)
+            yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+            scraper.run_by_date_range(since_date_str=yesterday, days=1)
             self.logger.info("Daily scraping completed successfully")
         except Exception as e:
             self.logger.error(f"Error in daily scraping: {e}")
