@@ -56,11 +56,8 @@ class PRScraper:
             print(f"Failed to fetch diff content for PR #{pr['number']}: {error}")
             return False
 
-        # Get comments data
-        comments_data, error = self.github.get_pull_request_comments(pr["number"])
-        if error:
-            print(f"Failed to fetch comments for PR #{pr['number']}: {error}")
-            return False
+        # Get comments data from PR object (already fetched via GraphQL)
+        comments_data = pr.get("comments", [])
 
         # Process PR, diff and comments in one transaction
         if self.db.insert_pr_diff_comments(pr_data, diff_content, comments_data):

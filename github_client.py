@@ -15,75 +15,256 @@ class GitHubClient:
             "Accept": "application/vnd.github.v3+json",
         }
 
+    def _transform_pr_data(self, pr_node, owner="apache", repo="iotdb"):
+        """
+        Transform GraphQL PR node to REST API compatible format
+        """
+        # Process comments
+        comments_data = []
+        for comment in pr_node.get("comments", {}).get("nodes", []):
+            author = comment.get("author")
+            user = author["login"] if author else "unknown"
+            if author and author.get("__typename", "User") == "Bot":
+                user = f"{user}[bot]"
+
+            comments_data.append(
+                {
+                    "id": comment["databaseId"],
+                    "user": user,
+                    "body": comment.get("body", ""),
+                    "created_at": comment["createdAt"],
+                    "updated_at": comment["updatedAt"],
+                    "html_url": comment.get("url", ""),
+                }
+            )
+
+        # Transform to REST API compatible format
+        pr = {
+            "number": pr_node["number"],
+            "title": pr_node["title"],
+            "body": pr_node.get("body", ""),
+            "created_at": pr_node["createdAt"],
+            "merged_at": pr_node["mergedAt"],
+            "user": {
+                "login": (
+                    pr_node["author"]["login"] if pr_node.get("author") else "unknown"
+                )
+            },
+            "labels": [{"name": label["name"]} for label in pr_node["labels"]["nodes"]],
+            "comments": comments_data,
+            "head": {"ref": pr_node["headRefName"]},
+            "base": {"ref": pr_node["baseRefName"]},
+            "additions": pr_node["additions"],
+            "deletions": pr_node["deletions"],
+            "diff_url": f"https://github.com/{owner}/{repo}/pull/{pr_node['number']}.diff",
+            "comments_url": f"https://api.github.com/repos/{owner}/{repo}/issues/{pr_node['number']}/comments",
+        }
+
+        return pr
+
     def get_iotdb_prs(self, owner="apache", repo="iotdb", since_date=None, days=30):
         """
         Fetch merged pull requests from the last N days or since a specific date
+        Uses GitHub GraphQL API v4 with search for efficient data fetching
         """
+        # Calculate date range
         start_date = None
         end_date = None
         if since_date is None:
-            start_date = (datetime.now() - timedelta(days=days)).isoformat()
-            end_date = datetime.now().isoformat()
+            start_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+            end_date = datetime.now().strftime("%Y-%m-%d")
         elif isinstance(since_date, str):
             start_dt = datetime.strptime(since_date, "%Y-%m-%d")
-            start_date = start_dt.isoformat()
-            end_date = (start_dt + timedelta(days=days)).isoformat()
+            start_date = start_dt.strftime("%Y-%m-%d")
+            end_date = (start_dt + timedelta(days=days)).strftime("%Y-%m-%d")
 
-        url = f"{self.base_url}/repos/{owner}/{repo}/pulls"
-        params = {
-            "state": "closed",
-            "sort": "merged",
-            "direction": "desc",
-            "per_page": 100,
+        # GraphQL API endpoint
+        url = "https://api.github.com/graphql"
+
+        # GraphQL query using search API with all required fields for process_pr
+        query = """
+        query($searchQuery: String!, $cursor: String) {
+          search(query: $searchQuery, type: ISSUE, first: 100, after: $cursor) {
+            issueCount
+            pageInfo {
+              hasNextPage
+              endCursor
+            }
+            nodes {
+              ... on PullRequest {
+                number
+                title
+                body
+                createdAt
+                mergedAt
+                author {
+                  login
+                }
+                labels(first: 50) {
+                  nodes {
+                    name
+                  }
+                }
+                comments(first: 100) {
+                  nodes {
+                    databaseId
+                    author {
+                      login
+                      __typename
+                    }
+                    body
+                    createdAt
+                    updatedAt
+                    url
+                  }
+                }
+                headRefName
+                baseRefName
+                additions
+                deletions
+              }
+            }
+          }
         }
+        """
+
+        # Build search query string
+        search_query = (
+            f"repo:{owner}/{repo} type:pr is:merged merged:{start_date}..{end_date}"
+        )
 
         prs = []
-        page = 1
+        cursor = None
 
         while True:
-            params["page"] = page
+            variables = {"searchQuery": search_query, "cursor": cursor}
+
             try:
-                response = requests.get(
-                    url, headers=self.headers, params=params, timeout=30
+                response = requests.post(
+                    url,
+                    json={"query": query, "variables": variables},
+                    headers=self.headers,
+                    timeout=30,
                 )
 
                 if response.status_code != 200:
-                    return None, f"HTTP {response.status_code}"
+                    print(f"GraphQL API error: HTTP {response.status_code}")
+                    return []
 
-                page_prs = response.json()
-                if not page_prs:
-                    break
-            except requests.exceptions.RequestException as e:
-                return None, f"Network error: {str(e)}"
+                result = response.json()
 
-            # Filter for merged PRs and recent ones
-            for pr in page_prs:
-                if pr.get("merged_at") is None or pr["merged_at"] > end_date:
-                    continue
-                elif pr["merged_at"] >= start_date:
+                # Check for errors
+                if "errors" in result:
+                    print(f"GraphQL error: {result['errors']}")
+                    return []
+
+                # Extract PR data
+                search_result = result["data"]["search"]
+                nodes = search_result["nodes"]
+
+                # Transform to REST API compatible format for process_pr
+                for node in nodes:
+                    pr = self._transform_pr_data(node, owner, repo)
                     prs.append(pr)
-                elif pr["merged_at"] < start_date:
-                    # Since PRs are sorted by merged date, we can break early
-                    return prs
 
-            page += 1
+                # Check if there are more pages
+                page_info = search_result["pageInfo"]
+                if not page_info["hasNextPage"]:
+                    break
+
+                cursor = page_info["endCursor"]
+
+            except requests.exceptions.RequestException as e:
+                print(f"Network error: {str(e)}")
+                return []
+            except Exception as e:
+                print(f"Error processing GraphQL response: {str(e)}")
+                return []
 
         return prs
 
     def get_iotdb_pr(self, pr_number, owner="apache", repo="iotdb"):
         """
-        Get detailed information about a specific pull request
+        Get detailed information about a specific pull request using GraphQL
+        Returns data in the same format as get_iotdb_prs for consistency
         """
-        url = f"{self.base_url}/repos/{owner}/{repo}/pulls/{pr_number}"
-        try:
-            response = requests.get(url, headers=self.headers, timeout=30)
+        # GraphQL API endpoint
+        url = "https://api.github.com/graphql"
 
-            if response.status_code == 200:
-                return response.json(), None
-            else:
-                return None, f"HTTP {response.status_code}"
+        # GraphQL query for a single PR with all fields including comments
+        query = """
+        query($owner: String!, $repo: String!, $number: Int!) {
+          repository(owner: $owner, name: $repo) {
+            pullRequest(number: $number) {
+              number
+              title
+              body
+              createdAt
+              mergedAt
+              author {
+                login
+              }
+              labels(first: 50) {
+                nodes {
+                  name
+                }
+              }
+              comments(first: 100) {
+                nodes {
+                  databaseId
+                  author {
+                    login
+                    __typename
+                  }
+                  body
+                  createdAt
+                  updatedAt
+                  url
+                }
+              }
+              headRefName
+              baseRefName
+              additions
+              deletions
+            }
+          }
+        }
+        """
+
+        variables = {"owner": owner, "repo": repo, "number": pr_number}
+
+        try:
+            response = requests.post(
+                url,
+                json={"query": query, "variables": variables},
+                headers=self.headers,
+                timeout=30,
+            )
+
+            if response.status_code != 200:
+                return None, f"GraphQL API error: HTTP {response.status_code}"
+
+            result = response.json()
+
+            # Check for errors
+            if "errors" in result:
+                return None, f"GraphQL error: {result['errors']}"
+
+            # Extract PR data
+            pr_data = result["data"]["repository"]["pullRequest"]
+
+            if not pr_data:
+                return None, f"PR #{pr_number} not found"
+
+            # Transform to REST API compatible format
+            pr = self._transform_pr_data(pr_data, owner, repo)
+
+            return pr, None
+
         except requests.exceptions.RequestException as e:
             return None, f"Network error: {str(e)}"
+        except Exception as e:
+            return None, f"Error processing GraphQL response: {str(e)}"
 
     def get_pull_request_comments(self, pr_number, owner="apache", repo="iotdb"):
         """
