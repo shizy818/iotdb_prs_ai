@@ -73,6 +73,20 @@ def get_tool_definitions() -> List[Dict]:
                 "required": ["pattern"],
             },
         },
+        {
+            "name": "bash",
+            "description": "执行安全的 git 命令（只允许只读命令和 checkout）。在 IoTDB 源码目录中执行。",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": "要执行的 git 命令（如 'git checkout <commit_sha>', 'git status', 'git log'）",
+                    }
+                },
+                "required": ["command"],
+            },
+        },
     ]
 
 
@@ -204,6 +218,100 @@ class PRAnalysisAnthropic:
         except Exception as e:
             return {"success": False, "error": f"Grep 搜索失败: {str(e)}"}
 
+    def _execute_bash_tool(self, command: str) -> Dict:
+        """
+        执行 bash 工具：只允许安全的 git 命令
+
+        Args:
+            command: 要执行的命令
+
+        Returns:
+            工具执行结果
+        """
+        try:
+            # 解析命令
+            cmd_parts = command.strip().split()
+            if not cmd_parts:
+                return {"success": False, "error": "命令为空"}
+
+            first_cmd = cmd_parts[0].lower()
+
+            # 只允许 git 命令
+            if first_cmd != "git":
+                return {
+                    "success": False,
+                    "error": f"只允许 git 命令，不允许: {first_cmd}",
+                }
+
+            if len(cmd_parts) < 2:
+                return {"success": False, "error": "Git 命令不完整"}
+
+            git_subcmd = cmd_parts[1].lower()
+
+            # 允许的安全 git 命令（只读 + checkout）
+            safe_git_commands = {
+                "checkout",
+                "status",
+                "log",
+                "show",
+                "diff",
+                "branch",
+                "rev-parse",
+                "ls-tree",
+                "ls-files",
+            }
+
+            # 危险命令黑名单
+            dangerous_git_commands = {
+                "push",
+                "reset",
+                "clean",
+                "rm",
+                "commit",
+                "rebase",
+                "merge",
+                "pull",
+                "fetch",
+                "add",
+            }
+
+            if git_subcmd in dangerous_git_commands:
+                return {
+                    "success": False,
+                    "error": f"禁止执行危险的 git 命令: git {git_subcmd}",
+                }
+
+            if git_subcmd not in safe_git_commands:
+                return {
+                    "success": False,
+                    "error": f"Git 命令 '{git_subcmd}' 不在允许列表中（允许: {', '.join(sorted(safe_git_commands))}）",
+                }
+
+            # 执行命令
+            result = subprocess.run(
+                cmd_parts,
+                cwd=str(self.iotdb_source_dir),
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+
+            # 合并 stdout 和 stderr
+            output = result.stdout
+            if result.stderr:
+                output += "\n" + result.stderr
+
+            return {
+                "success": result.returncode == 0,
+                "output": output.strip(),
+                "returncode": result.returncode,
+            }
+
+        except subprocess.TimeoutExpired:
+            return {"success": False, "error": "命令执行超时（30秒）"}
+        except Exception as e:
+            return {"success": False, "error": f"命令执行失败: {str(e)}"}
+
     def _execute_tool(self, tool_name: str, tool_input: Dict) -> Dict:
         """
         执行工具调用
@@ -227,6 +335,8 @@ class PRAnalysisAnthropic:
                 tool_input.get("path", "") or "",
                 tool_input.get("file_type", "") or "",
             )
+        elif tool_name == "bash":
+            return self._execute_bash_tool(tool_input.get("command", ""))
         else:
             return {"success": False, "error": f"未知工具: {tool_name}"}
 
@@ -289,17 +399,21 @@ class PRAnalysisAnthropic:
             if enable_tools:
                 system_prompt += """
 
-**重要：在分析之前，请务必使用以下工具读取和搜索IoTDB源码文件以便深入理解：**
-1. 使用 Glob 工具查找 diff 中涉及的源码文件（例如：`**/ClassName.java`）
-2. 使用 Read 工具读取这些完整的源码文件
-3. 使用 Grep 工具搜索相关的类、方法或关键字以获取更多上下文"""
+**重要：在分析之前，请务必按照以下步骤操作：**
+1. 使用 bash 工具执行 git checkout 命令，将IoTDB源码切换到 PR 的 merge_commit（查询中会提供该 commit SHA）
+   - 例如：bash 工具执行 `git checkout <merge_commit_sha>`
+2. 使用 glob 工具查找 diff 中涉及的源码文件（例如：`**/ClassName.java`）
+3. 使用 read 工具读取这些完整的源码文件
+4. 使用 grep 工具搜索相关的类、方法或关键字以获取更多上下文
+
+注意：bash 工具只允许执行安全的 git 命令（checkout, status, log, show, diff 等），禁止使用 push、reset、clean 等危险命令。"""
 
             print(f"🚀 正在使用 Anthropic API 发送分析请求...")
             print(f"   模型: GLM-4.6")
             print(f"   最大输出 tokens: {max_tokens:,}")
             print(f"   Temperature: {temperature}")
             print(
-                f"   工具支持: {'启用 (read, glob, grep)' if enable_tools else '禁用'}"
+                f"   工具支持: {'启用 (read, glob, grep, bash)' if enable_tools else '禁用'}"
             )
             print(f"   Prompt Caching: {'启用' if use_cache else '禁用'}")
 
@@ -422,6 +536,10 @@ class PRAnalysisAnthropic:
                                     print(
                                         f"   🔍 搜索: {tool_input.get('pattern', '')}"
                                     )
+                                elif tool_name == "bash":
+                                    print(
+                                        f"   🌿 Bash 命令: {tool_input.get('command', '')}"
+                                    )
 
                                 # 执行工具
                                 tool_result = self._execute_tool(tool_name, tool_input)
@@ -523,7 +641,7 @@ async def main():
         print("=" * 60)
 
         # 获取 PR 编号
-        pr_number = 15685  # Insert into
+        pr_number = 13097
 
         print("\n" + "=" * 60)
         print("🚀 开始PR分析 (使用 Anthropic API + 工具调用 + Cache Control)...")

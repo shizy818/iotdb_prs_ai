@@ -108,6 +108,14 @@ class GrepInput(BaseModel):
     )
 
 
+class BashInput(BaseModel):
+    """Bash 执行的输入参数"""
+
+    command: str = Field(
+        description="要执行的 git 命令（如 'git checkout <commit_sha>', 'git status', 'git log'）"
+    )
+
+
 class PRAnalysisLangChain:
     """使用 LangChain 实现的 PR 分析器"""
 
@@ -318,12 +326,134 @@ class PRAnalysisLangChain:
             args_schema=GrepInput,
         )
 
+    def _create_bash_tool(self) -> BaseTool:
+        """创建 Bash 执行工具（只允许安全的 git 命令）"""
+
+        def run_bash(command: str) -> str:
+            """
+            执行安全的 git 命令
+
+            Args:
+                command: 要执行的命令
+
+            Returns:
+                命令执行结果
+            """
+            try:
+                # 解析命令
+                cmd_parts = command.strip().split()
+                if not cmd_parts:
+                    print(f"❌ 命令为空")
+                    return "错误: 命令为空"
+
+                first_cmd = cmd_parts[0].lower()
+
+                # 只允许 git 命令
+                if first_cmd != "git":
+                    print(f"❌ 只允许 git 命令，不允许: {first_cmd}")
+                    return f"错误: 只允许 git 命令，不允许: {first_cmd}"
+
+                if len(cmd_parts) < 2:
+                    print(f"❌ Git 命令不完整")
+                    return "错误: Git 命令不完整"
+
+                git_subcmd = cmd_parts[1].lower()
+
+                # 允许的安全 git 命令（只读 + checkout）
+                safe_git_commands = {
+                    "checkout",
+                    "status",
+                    "log",
+                    "show",
+                    "diff",
+                    "branch",
+                    "rev-parse",
+                    "ls-tree",
+                    "ls-files",
+                }
+
+                # 危险命令黑名单
+                dangerous_git_commands = {
+                    "push",
+                    "reset",
+                    "clean",
+                    "rm",
+                    "commit",
+                    "rebase",
+                    "merge",
+                    "pull",
+                    "fetch",
+                    "add",
+                }
+
+                if git_subcmd in dangerous_git_commands:
+                    print(f"❌ 禁止执行危险的 git 命令: git {git_subcmd}")
+                    return f"错误: 禁止执行危险的 git 命令: git {git_subcmd}"
+
+                if git_subcmd not in safe_git_commands:
+                    allowed_list = ", ".join(sorted(safe_git_commands))
+                    print(f"❌ Git 命令 '{git_subcmd}' 不在允许列表中")
+                    return f"错误: Git 命令 '{git_subcmd}' 不在允许列表中（允许: {allowed_list}）"
+
+                # 执行命令
+                result = subprocess.run(
+                    cmd_parts,
+                    cwd=str(self.iotdb_source_dir),
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+
+                # 合并 stdout 和 stderr
+                output = result.stdout
+                if result.stderr:
+                    output += "\n" + result.stderr
+
+                # 控制台显示执行结果
+                if result.returncode == 0:
+                    print(f"✅ Bash 命令执行成功: {command}")
+                    # 只显示输出的前几行（避免刷屏）
+                    output_lines = output.strip().split("\n")
+                    if len(output_lines) > 5:
+                        preview = "\n".join(output_lines[:5])
+                        print(
+                            f"   输出预览 (前5行):\n{preview}\n   ... (共 {len(output_lines)} 行)"
+                        )
+                    else:
+                        print(f"   输出:\n{output.strip()}")
+                else:
+                    print(
+                        f"❌ Bash 命令执行失败 (退出码: {result.returncode}): {command}"
+                    )
+
+                # 返回完整输出给模型
+                return (
+                    output.strip()
+                    if result.returncode == 0
+                    else f"错误 (退出码 {result.returncode}): {output.strip()}"
+                )
+
+            except subprocess.TimeoutExpired:
+                print(f"❌ 命令执行超时（30秒）: {command}")
+                return "错误: 命令执行超时（30秒）"
+            except Exception as e:
+                print(f"❌ 命令执行失败: {command} - {str(e)}")
+                return f"错误: 命令执行失败: {str(e)}"
+
+        return StructuredTool.from_function(
+            func=run_bash,
+            name="bash",
+            description="执行安全的 git 命令（只允许只读命令和 checkout）。在 IoTDB 源码目录中执行。",
+            args_schema=BashInput,
+        )
+
     def _create_tools(self) -> List[BaseTool]:
         """创建所有工具"""
         return [
             self._create_read_tool(),
             self._create_glob_tool(),
             self._create_grep_tool(),
+            self._create_bash_tool(),
         ]
 
     def get_pr_by_number(self, pr_number: Optional[int] = None) -> Optional[Dict]:
@@ -373,14 +503,18 @@ class PRAnalysisLangChain:
             if enable_tools:
                 system_prompt += """
 
-**重要：在分析之前，请务必使用以下工具读取和搜索IoTDB源码文件以便深入理解：**
-1. 使用 glob 工具查找 diff 中涉及的源码文件（例如：`**/ClassName.java`）
-2. 使用 read 工具读取这些完整的源码文件
-3. 使用 grep 工具搜索相关的类、方法或关键字以获取更多上下文"""
+**重要：在分析之前，请务必按照以下步骤操作：**
+1. 使用 bash 工具执行 git checkout 命令，将IoTDB源码切换到 PR 的 merge_commit（查询中会提供该 commit SHA）
+   - 例如：bash 工具执行 `git checkout <merge_commit_sha>`
+2. 使用 glob 工具查找 diff 中涉及的源码文件（例如：`**/ClassName.java`）
+3. 使用 read 工具读取这些完整的源码文件
+4. 使用 grep 工具搜索相关的类、方法或关键字以获取更多上下文
+
+注意：bash 工具只允许执行安全的 git 命令（checkout, status, log, show, diff 等），禁止使用 push、reset、clean 等危险命令。"""
 
             print(f"🚀 正在使用 LangChain Agent 进行分析...")
             print(
-                f"   工具支持: {'启用 (read, glob, grep)' if enable_tools else '禁用'}"
+                f"   工具支持: {'启用 (read, glob, grep, bash)' if enable_tools else '禁用'}"
             )
             print("\n=== Claude 分析结果 ===\n")
 
@@ -471,7 +605,7 @@ async def main():
         print("=" * 60)
 
         # 获取 PR 编号
-        pr_number = 16607
+        pr_number = 12879
 
         print("\n" + "=" * 60)
         print("🚀 开始PR分析 (使用 LongChain + 工具调用)...")
