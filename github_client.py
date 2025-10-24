@@ -72,11 +72,11 @@ class GitHubClient:
         end_date = None
         if since_date is None:
             start_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
-            end_date = datetime.now().strftime("%Y-%m-%d")
+            end_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
         elif isinstance(since_date, str):
             start_dt = datetime.strptime(since_date, "%Y-%m-%d")
             start_date = start_dt.strftime("%Y-%m-%d")
-            end_date = (start_dt + timedelta(days=days)).strftime("%Y-%m-%d")
+            end_date = (start_dt + timedelta(days=days - 1)).strftime("%Y-%m-%d")
 
         # GraphQL API endpoint
         url = "https://api.github.com/graphql"
