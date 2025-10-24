@@ -44,6 +44,7 @@ class PRScraper:
             "comments_url": pr["comments_url"],
             "additions": pr.get("additions", 0),
             "deletions": pr.get("deletions", 0),
+            "merge_commit": pr.get("merge_commit", ""),
         }
 
         # Get diff content

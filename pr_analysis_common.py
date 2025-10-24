@@ -34,6 +34,7 @@ IoTDB PR详细信息：
 - 描述: {body}
 - 创建时间: {created_at}
 - 合并时间: {merged_at}
+- 合并Commit: {merge_commit}
 - 作者: {user}
 - 标签: {labels}
 - 代码变更: +{additions} 行, -{deletions} 行
@@ -65,6 +66,7 @@ IoTDB PR详细信息：
         body=pr_data.get("body", "无描述"),
         created_at=pr_data.get("created_at", ""),
         merged_at=pr_data.get("merged_at", ""),
+        merge_commit=pr_data.get("merge_commit", "无"),
         user=pr_data.get("user", ""),
         labels=json.dumps(pr_data.get("labels", []), ensure_ascii=False),
         additions=pr_data.get("additions", 0),
@@ -99,7 +101,7 @@ def get_pr_by_number(
         if pr_number:
             query = """
             SELECT number, title, body, created_at, merged_at, user, labels,
-                   head, base, additions, deletions, diff_url, comments_url
+                   head, base, additions, deletions, diff_url, comments_url, merge_commit
             FROM iotdb_prs
             WHERE number = %s
             """
@@ -107,7 +109,7 @@ def get_pr_by_number(
         else:
             query = """
             SELECT number, title, body, created_at, merged_at, user, labels,
-                   head, base, additions, deletions, diff_url, comments_url
+                   head, base, additions, deletions, diff_url, comments_url, merge_commit
             FROM iotdb_prs
             ORDER BY merged_at DESC
             LIMIT 1

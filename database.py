@@ -58,6 +58,7 @@ class DatabaseManager:
             comments_url VARCHAR(1000),
             additions INT,
             deletions INT,
+            merge_commit VARCHAR(40),
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
         )
         """
@@ -112,8 +113,8 @@ class DatabaseManager:
 
     def insert_pr(self, pr_data):
         query = """
-        INSERT INTO iotdb_prs (number, title, body, created_at, merged_at, user, labels, head, base, diff_url, comments_url, additions, deletions)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        INSERT INTO iotdb_prs (number, title, body, created_at, merged_at, user, labels, head, base, diff_url, comments_url, additions, deletions, merge_commit)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
 
         try:
@@ -134,6 +135,7 @@ class DatabaseManager:
                     pr_data["comments_url"],
                     pr_data["additions"],
                     pr_data["deletions"],
+                    pr_data.get("merge_commit"),
                 ),
             )
             self.connection.commit()
@@ -257,8 +259,8 @@ class DatabaseManager:
 
             # 插入PR
             pr_insert = """
-            INSERT INTO iotdb_prs (number, title, body, created_at, merged_at, user, labels, head, base, diff_url, comments_url, additions, deletions)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO iotdb_prs (number, title, body, created_at, merged_at, user, labels, head, base, diff_url, comments_url, additions, deletions, merge_commit)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """
             cursor.execute(
                 pr_insert,
@@ -276,6 +278,7 @@ class DatabaseManager:
                     pr_data["comments_url"],
                     pr_data["additions"],
                     pr_data["deletions"],
+                    pr_data.get("merge_commit"),
                 ),
             )
 

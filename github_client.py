@@ -38,6 +38,11 @@ class GitHubClient:
                 }
             )
 
+        # Extract merge commit oid
+        merge_commit = None
+        if pr_node.get("mergeCommit"):
+            merge_commit = pr_node["mergeCommit"].get("oid")
+
         # Transform to REST API compatible format
         pr = {
             "number": pr_node["number"],
@@ -56,6 +61,7 @@ class GitHubClient:
             "base": {"ref": pr_node["baseRefName"]},
             "additions": pr_node["additions"],
             "deletions": pr_node["deletions"],
+            "merge_commit": merge_commit,
             "diff_url": f"https://github.com/{owner}/{repo}/pull/{pr_node['number']}.diff",
             "comments_url": f"https://api.github.com/repos/{owner}/{repo}/issues/{pr_node['number']}/comments",
         }
@@ -125,6 +131,9 @@ class GitHubClient:
                 baseRefName
                 additions
                 deletions
+                mergeCommit {
+                  oid
+                }
               }
             }
           }
@@ -229,6 +238,9 @@ class GitHubClient:
               baseRefName
               additions
               deletions
+              mergeCommit {
+                oid
+              }
             }
           }
         }

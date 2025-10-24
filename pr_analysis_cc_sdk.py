@@ -37,8 +37,8 @@ class PRAnalysisClaudeAgentSDK:
             # "DISABLE_PROMPT_CACHING": "1",
         }
 
-        # 允许的工具列表
-        self.allowed_tools = ["read", "glob", "grep"]
+        # 允许的工具列表（首字母大写，与 SDK 实际使用的格式一致）
+        self.allowed_tools = ["Bash", "Read", "Glob", "Grep"]
 
     async def can_use_tool(
         self,
@@ -53,24 +53,29 @@ class PRAnalysisClaudeAgentSDK:
         这里只需要检查：
         1. 工具名称白名单
         2. 敏感文件/目录黑名单
+        3. 对于 bash 工具，检查命令是否安全（特别是 git 命令）
 
         Args:
-            tool_name: 工具名称（如 "read", "glob", "grep"）
+            tool_name: 工具名称（如 "read", "glob", "grep", "bash"）
             tool_input: 工具输入参数（如 {"file_path": "..."}）
             context: 工具权限上下文
 
         Returns:
             PermissionResult: 允许或拒绝的决策
         """
+        # 调试：打印所有工具调用
+        print(f"\n[权限检查] tool_name='{tool_name}', input={tool_input}")
+
         # 1. 检查工具是否在允许列表中
         if tool_name not in self.allowed_tools:
+            print(f"[权限检查] ❌ 工具不在允许列表中")
             return PermissionResultDeny(
                 message=f"❌ 工具 '{tool_name}' 不在允许列表中（允许: {', '.join(self.allowed_tools)}）",
                 interrupt=False,
             )
 
-        # 2. 检查 read 工具 - 只需要检查敏感文件
-        if tool_name == "read":
+        # 2. 检查 Read 工具 - 只需要检查敏感文件
+        if tool_name == "Read":
             file_path = tool_input.get("file_path", "")
 
             # 禁止读取敏感文件
@@ -92,8 +97,8 @@ class PRAnalysisClaudeAgentSDK:
             print(f"✅ [Read] 允许读取: {file_path}")
             return PermissionResultAllow()
 
-        # 3. 检查 glob 工具 - 只需要检查敏感目录
-        elif tool_name == "glob":
+        # 3. 检查 Glob 工具 - 只需要检查敏感目录
+        elif tool_name == "Glob":
             pattern = tool_input.get("pattern", "")
             search_path = tool_input.get("path", "")
 
@@ -118,8 +123,8 @@ class PRAnalysisClaudeAgentSDK:
             )
             return PermissionResultAllow()
 
-        # 4. 检查 grep 工具 - 直接允许
-        elif tool_name == "grep":
+        # 4. 检查 Grep 工具 - 直接允许
+        elif tool_name == "Grep":
             pattern = tool_input.get("pattern", "")
             search_path = tool_input.get("path", "")
             file_type = tool_input.get("file_type", "")
@@ -129,7 +134,87 @@ class PRAnalysisClaudeAgentSDK:
             )
             return PermissionResultAllow()
 
-        # 5. 其他工具（理论上不会到这里，因为已经在第1步检查过）
+        # 5. 检查 Bash 工具 - 只允许安全的 git 命令
+        elif tool_name == "Bash":
+            command = tool_input.get("command", "")
+            print(f"[权限检查] Bash 命令: {command}")
+
+            # 提取命令的第一个词
+            cmd_parts = command.strip().split()
+            if not cmd_parts:
+                print(f"[权限检查] ❌ Bash 命令为空")
+                return PermissionResultDeny(
+                    message=f"❌ Bash 命令为空",
+                    interrupt=False,
+                )
+
+            first_cmd = cmd_parts[0].lower()
+            print(f"[权限检查] 第一个命令: {first_cmd}")
+
+            # 检查是否是 git 命令
+            if first_cmd == "git":
+                if len(cmd_parts) < 2:
+                    print(f"[权限检查] ❌ Git 命令不完整")
+                    return PermissionResultDeny(
+                        message=f"❌ Git 命令不完整",
+                        interrupt=False,
+                    )
+
+                git_subcmd = cmd_parts[1].lower()
+                print(f"[权限检查] Git 子命令: {git_subcmd}")
+
+                # 允许的安全 git 命令（只读 + checkout）
+                safe_git_commands = {
+                    "checkout",
+                    "status",
+                    "log",
+                    "show",
+                    "diff",
+                    "branch",
+                    "rev-parse",
+                    "ls-tree",
+                    "ls-files",
+                }
+
+                # 危险命令黑名单
+                dangerous_git_commands = {
+                    "push",
+                    "reset",
+                    "clean",
+                    "rm",
+                    "commit",
+                    "rebase",
+                    "merge",
+                    "pull",
+                    "fetch",
+                    "add",
+                }
+
+                if git_subcmd in dangerous_git_commands:
+                    print(f"[权限检查] 🚨 禁止危险的 git 命令")
+                    return PermissionResultDeny(
+                        message=f"🚨 禁止执行危险的 git 命令: git {git_subcmd}",
+                        interrupt=False,
+                    )
+
+                if git_subcmd not in safe_git_commands:
+                    print(f"[权限检查] ❌ Git 命令不在允许列表中")
+                    return PermissionResultDeny(
+                        message=f"❌ Git 命令 '{git_subcmd}' 不在允许列表中（允许: {', '.join(sorted(safe_git_commands))}）",
+                        interrupt=False,
+                    )
+
+                print(f"✅ [Bash] 允许 git 命令: {command}")
+                return PermissionResultAllow()
+            else:
+                # 不是 git 命令，拒绝
+                print(f"[权限检查] ❌ 不是 git 命令")
+                return PermissionResultDeny(
+                    message=f"❌ Bash 命令 '{first_cmd}' 不被允许（只允许 git 命令）",
+                    interrupt=False,
+                )
+
+        # 6. 其他工具（理论上不会到这里，因为已经在第1步检查过）
         else:
             return PermissionResultDeny(
                 message=f"❌ 未知工具: {tool_name}",
@@ -178,10 +263,15 @@ class PRAnalysisClaudeAgentSDK:
             if enable_tools:
                 system_prompt += """
 
-**重要：在分析之前，请务必使用以下工具读取和搜索IoTDB源码文件以便深入理解：**
-1. 使用 Glob 工具查找 diff 中涉及的源码文件（例如：`**/ClassName.java`）
-2. 使用 Read 工具读取这些完整的源码文件
-3. 使用 Grep 工具搜索相关的类、方法或关键字以获取更多上下文"""
+**重要：在分析之前，请务必按照以下步骤操作：**
+1. 使用 Bash 工具执行 git checkout 命令，将IoTDB源码切换到 PR 的 merge_commit（查询中会提供该 commit SHA）
+   - 例如：Bash 工具执行 `git checkout <merge_commit_sha>`
+2. 使用 Glob 工具查找 diff 中涉及的源码文件（例如：`**/ClassName.java`）
+3. 使用 Read 工具读取这些完整的源码文件
+4. 使用 Grep 工具搜索相关的类、方法或关键字以获取更多上下文
+
+注意：Bash 工具只允许执行安全的 git 命令（checkout, status, log, show, diff 等），禁止使用 push、reset、clean 等危险命令。"""
+            print(system_prompt)
 
             async with ClaudeSDKClient(
                 options=ClaudeAgentOptions(
@@ -208,7 +298,7 @@ class PRAnalysisClaudeAgentSDK:
                 )
                 print(f"🚀 正在使用 Claude Agent SDK 发送分析请求...")
                 print(
-                    f"   工具支持: {'启用 (read, glob, grep)' if enable_tools else '禁用'}"
+                    f"   工具支持: {'启用 (Bash, Read, Glob, Grep)' if enable_tools else '禁用'}"
                 )
 
                 await client.query(query)
@@ -230,15 +320,18 @@ class PRAnalysisClaudeAgentSDK:
                                 tool_calls.append(tool_info)
                                 print(f"\n🔧 [工具调用] {tool_info['name']}")
                                 # 打印工具参数（简化显示）
-                                if tool_info["name"] == "read":
+                                if tool_info["name"] == "Read":
                                     file_path = tool_info["input"].get("file_path", "")
                                     print(f"   📄 读取文件: {file_path}")
-                                elif tool_info["name"] == "grep":
+                                elif tool_info["name"] == "Grep":
                                     pattern = tool_info["input"].get("pattern", "")
                                     print(f"   🔍 搜索: {pattern}")
-                                elif tool_info["name"] == "glob":
+                                elif tool_info["name"] == "Glob":
                                     pattern = tool_info["input"].get("pattern", "")
                                     print(f"   📁 查找文件: {pattern}")
+                                elif tool_info["name"] == "Bash":
+                                    command = tool_info["input"].get("command", "")
+                                    print(f"   🌿 Bash 命令: {command}")
                                 print()
 
                             # 收集文本内容
@@ -305,7 +398,7 @@ async def main():
 
         # 获取 PR 编号
         # pr_number = 15685  # Insert into
-        pr_number = 16607
+        pr_number = 12879
 
         print("\n" + "=" * 60)
         print("🚀 开始PR分析 (使用 ClaudeSDKClient + 工具调用)...")
