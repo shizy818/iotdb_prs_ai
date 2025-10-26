@@ -30,7 +30,11 @@ class PRAnalysisRunnable:
     """PR 分析的 Runnable 包装器 - 支持多种框架"""
 
     def __init__(
-        self, framework: FrameworkType = "langchain", enable_tools: bool = True
+        self,
+        framework: FrameworkType = "langchain",
+        enable_tools: bool = True,
+        check_exists: bool = True,
+        vector_store: Optional[VectorStoreManager] = None,
     ):
         """
         初始化 PR 分析器
@@ -38,9 +42,13 @@ class PRAnalysisRunnable:
         Args:
             framework: 分析框架 ('langchain', 'claude_agent_sdk', 'anthropic')
             enable_tools: 是否启用工具调用
+            check_exists: 是否检查 PR 是否已存在于向量数据库
+            vector_store: 向量数据库实例（可选，用于检查 PR 是否存在）
         """
         self.framework = framework
         self.enable_tools = enable_tools
+        self.check_exists = check_exists
+        self.vector_store = vector_store
 
         print(f"🔧 初始化 PR 分析器 (框架: {framework})...")
 
@@ -59,6 +67,24 @@ class PRAnalysisRunnable:
     def __call__(self, inputs: Dict) -> Dict:
         """执行 PR 分析（同步调用）"""
         pr_number = inputs.get("pr_number")
+
+        # 如果启用了检查且向量数据库可用，先检查 PR 是否存在
+        if self.check_exists and self.vector_store and pr_number:
+            print(f"\n🔍 检查 PR #{pr_number} 是否已在向量数据库中...")
+            if self.vector_store.pr_exists(pr_number):
+                print(f"✅ PR #{pr_number} 已存在于向量数据库，跳过分析\n")
+                return {
+                    "success": True,
+                    "pr_number": pr_number,
+                    "pr_title": f"PR #{pr_number}",
+                    "analysis": "",
+                    "analyzed_at": "",
+                    "skipped": True,
+                    "skip_reason": "already_in_vector_db",
+                }
+            else:
+                print(f"✅ PR #{pr_number} 不存在，继续分析\n")
+
         print(f"\n🔍 步骤 1: 分析 PR #{pr_number if pr_number else '(最新)'}...")
         print(f"   使用框架: {self.framework}")
         print(f"   工具调用: {'启用' if self.enable_tools else '禁用'}\n")
@@ -75,6 +101,7 @@ class PRAnalysisRunnable:
         else:
             print(f"❌ PR 分析失败: {result.get('error')}\n")
 
+        result["skipped"] = False
         return result
 
     def close(self):
@@ -86,20 +113,29 @@ class PRAnalysisRunnable:
 class VectorStoreRunnable:
     """向量数据库存储的 Runnable 包装器"""
 
-    def __init__(self):
-        print("🔧 初始化向量数据库...")
-        try:
-            self.vector_store = VectorStoreManager()
-            self.enabled = True
-            print("✅ 向量数据库已启用\n")
-        except Exception as e:
-            print(f"⚠️ 向量数据库初始化失败: {e}")
-            print("⚠️ 将跳过向量数据库存储步骤\n")
-            self.vector_store = None
-            self.enabled = False
+    def __init__(self, vector_store: Optional[VectorStoreManager] = None):
+        """
+        初始化向量数据库存储器
+
+        Args:
+            vector_store: 向量数据库实例（可选）
+        """
+        print("🔧 初始化向量数据库存储器...")
+        self.vector_store = vector_store
+        self.enabled = vector_store is not None
+
+        if self.enabled:
+            print("✅ 向量数据库存储已启用\n")
+        else:
+            print("⚠️ 向量数据库未提供，将跳过存储步骤\n")
 
     def __call__(self, analysis_result: Dict) -> Dict:
         """保存分析结果到向量数据库"""
+        # 如果分析被跳过或失败，不保存
+        if analysis_result.get("skipped"):
+            analysis_result["vector_stored"] = False
+            return analysis_result
+
         if not self.enabled or not analysis_result.get("success"):
             analysis_result["vector_stored"] = False
             return analysis_result
@@ -119,9 +155,9 @@ class VectorStoreRunnable:
             }
 
             # 检查是否已存在
-            if self.vector_store.pr_exists(pr_number):
-                print(f"⚠️ PR #{pr_number} 已存在，更新记录...")
-                self.vector_store.delete_pr_analysis(pr_number)
+            # if self.vector_store.pr_exists(pr_number):
+            #     print(f"⚠️ PR #{pr_number} 已存在，更新记录...")
+            #     self.vector_store.delete_pr_analysis(pr_number)
 
             # 添加到向量数据库
             success = self.vector_store.add_pr_analysis(
@@ -152,6 +188,7 @@ def create_pr_analysis_chain(
     framework: FrameworkType = "langchain",
     enable_tools: bool = True,
     save_to_vector: bool = True,
+    check_exists: bool = True,
 ):
     """
     创建 PR 分析 Chain（使用 LangChain LCEL 语法）
@@ -160,6 +197,7 @@ def create_pr_analysis_chain(
         framework: 分析框架 ('langchain', 'claude_agent_sdk', 'anthropic')
         enable_tools: 是否启用工具调用（read, glob, grep）
         save_to_vector: 是否保存到向量数据库
+        check_exists: 是否在分析前检查 PR 是否已存在于向量数据库
 
     Returns:
         LangChain Runnable Chain
@@ -181,16 +219,36 @@ def create_pr_analysis_chain(
     print(f"   框架: {framework}")
     print(f"   工具调用: {'启用' if enable_tools else '禁用'}")
     print(f"   向量存储: {'启用' if save_to_vector else '禁用'}")
+    print(f"   检查存在: {'启用' if check_exists else '禁用'}")
     print()
+
+    # 统一初始化向量数据库（如果需要）
+    vector_store = None
+    if save_to_vector or check_exists:
+        print("🔧 初始化向量数据库...")
+        try:
+            vector_store = VectorStoreManager()
+            print("✅ 向量数据库初始化成功\n")
+        except Exception as e:
+            print(f"⚠️ 向量数据库初始化失败: {e}")
+            if save_to_vector:
+                print("⚠️ 将跳过向量数据库存储步骤")
+            if check_exists:
+                print("⚠️ 将不检查 PR 是否已存在")
+            print()
+            vector_store = None
 
     # 创建 PR 分析 Runnable
     analyze_runnable = PRAnalysisRunnable(
-        framework=framework, enable_tools=enable_tools
+        framework=framework,
+        enable_tools=enable_tools,
+        check_exists=check_exists,
+        vector_store=vector_store,
     )
 
     # 如果需要向量存储，创建完整链
     if save_to_vector:
-        vector_store_runnable = VectorStoreRunnable()
+        vector_store_runnable = VectorStoreRunnable(vector_store=vector_store)
 
         # 使用 LCEL 管道操作符组合链
         # analyze -> vector_store
@@ -211,6 +269,7 @@ def run_pr_analysis(
     framework: FrameworkType = "langchain",
     enable_tools: bool = True,
     save_to_vector: bool = True,
+    check_exists: bool = True,
 ) -> Dict:
     """
     便捷函数：运行 PR 分析 Chain
@@ -220,6 +279,7 @@ def run_pr_analysis(
         framework: 分析框架 ('langchain', 'claude_agent_sdk', 'anthropic')
         enable_tools: 是否启用工具调用（read, glob, grep）
         save_to_vector: 是否保存到向量数据库
+        check_exists: 是否在分析前检查 PR 是否已存在于向量数据库
 
     Returns:
         分析结果字典，包含 vector_stored 字段
@@ -243,7 +303,10 @@ def run_pr_analysis(
 
     # 创建 Chain
     chain = create_pr_analysis_chain(
-        framework=framework, enable_tools=enable_tools, save_to_vector=save_to_vector
+        framework=framework,
+        enable_tools=enable_tools,
+        save_to_vector=save_to_vector,
+        check_exists=check_exists,
     )
 
     # 运行 Chain
@@ -296,6 +359,7 @@ def batch_analyze_prs(
     framework: FrameworkType = "langchain",
     enable_tools: bool = True,
     save_to_vector: bool = True,
+    check_exists: bool = True,
 ) -> Dict:
     """
     批量分析多个 PR
@@ -305,6 +369,7 @@ def batch_analyze_prs(
         framework: 分析框架
         enable_tools: 是否启用工具调用
         save_to_vector: 是否保存到向量数据库
+        check_exists: 是否在分析前检查 PR 是否已存在于向量数据库
 
     Returns:
         包含成功和失败统计的结果字典
@@ -317,7 +382,9 @@ def batch_analyze_prs(
         "total": len(pr_numbers),
         "success": 0,
         "failed": 0,
+        "skipped": 0,
         "failed_prs": [],
+        "skipped_prs": [],
     }
 
     # 创建一个 Chain 对象，复用于所有 PR
@@ -325,10 +392,14 @@ def batch_analyze_prs(
     print(f"   框架: {framework}")
     print(f"   工具调用: {'启用' if enable_tools else '禁用'}")
     print(f"   向量存储: {'启用' if save_to_vector else '禁用'}")
+    print(f"   检查存在: {'启用' if check_exists else '禁用'}")
     print()
 
     chain = create_pr_analysis_chain(
-        framework=framework, enable_tools=enable_tools, save_to_vector=save_to_vector
+        framework=framework,
+        enable_tools=enable_tools,
+        save_to_vector=save_to_vector,
+        check_exists=check_exists,
     )
 
     for i, pr_number in enumerate(pr_numbers, 1):
@@ -340,7 +411,11 @@ def batch_analyze_prs(
             # 使用复用的 chain 对象
             result = chain.invoke({"pr_number": pr_number})
 
-            if result.get("success"):
+            if result.get("skipped"):
+                results["skipped"] += 1
+                results["skipped_prs"].append(pr_number)
+                print(f"⏭️ PR #{pr_number} 已跳过\n")
+            elif result.get("success"):
                 results["success"] += 1
                 print(f"✅ PR #{pr_number} 分析成功\n")
             else:
@@ -358,7 +433,10 @@ def batch_analyze_prs(
     print(f"{'='*80}")
     print(f"总计: {results['total']}")
     print(f"成功: {results['success']}")
+    print(f"跳过: {results['skipped']}")
     print(f"失败: {results['failed']}")
+    if results["skipped_prs"]:
+        print(f"跳过的PR: {results['skipped_prs']}")
     if results["failed_prs"]:
         print(f"失败的PR: {results['failed_prs']}")
     print(f"{'='*80}\n")
@@ -397,7 +475,7 @@ if __name__ == "__main__":
         "--framework",
         type=str,
         choices=["langchain", "claude_agent_sdk", "anthropic"],
-        default="claude_agent_sdk",
+        default="langchain",
         help="分析框架 (默认: claude_agent_sdk)",
     )
 
@@ -412,6 +490,11 @@ if __name__ == "__main__":
         action="store_true",
         help="不保存到向量数据库",
     )
+    parser.add_argument(
+        "--no_check_exists",
+        action="store_true",
+        help="不检查 PR 是否已存在（强制重新分析）",
+    )
 
     args = parser.parse_args()
 
@@ -423,6 +506,7 @@ if __name__ == "__main__":
 
     enable_tools = not args.no_tools
     save_to_vector = not args.no_vector
+    check_exists = not args.no_check_exists
 
     # 判断是单个 PR 还是批量处理
     if args.pr_number:
@@ -436,6 +520,7 @@ if __name__ == "__main__":
             framework=args.framework,
             enable_tools=enable_tools,
             save_to_vector=save_to_vector,
+            check_exists=check_exists,
         )
 
         # 打印结果摘要
@@ -443,9 +528,10 @@ if __name__ == "__main__":
         print(f"  PR 编号: {result.get('pr_number')}")
         print(f"  PR 标题: {result.get('pr_title')}")
         print(f"  分析成功: {result.get('success')}")
+        print(f"  已跳过: {result.get('skipped', False)}")
         print(f"  向量存储: {result.get('vector_stored', False)}")
 
-        if result.get("success"):
+        if result.get("success") and not result.get("skipped"):
             print(f"\n📄 分析内容预览:")
             analysis = result.get("analysis", "")
             preview = analysis[:500] + "..." if len(analysis) > 500 else analysis
@@ -467,6 +553,7 @@ if __name__ == "__main__":
             framework=args.framework,
             enable_tools=enable_tools,
             save_to_vector=save_to_vector,
+            check_exists=check_exists,
         )
 
     else:
