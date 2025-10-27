@@ -6,6 +6,7 @@
 import asyncio
 import json
 import subprocess
+import fnmatch
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Any
@@ -108,6 +109,23 @@ class GrepInput(BaseModel):
     )
 
 
+class FindInput(BaseModel):
+    """Find 查找文件的输入参数"""
+
+    pattern: str = Field(
+        description="文件名模式（支持通配符 * 和 ?，如 '*Operator.java', 'test_*.py'）",
+        alias="name",
+    )
+    path: str = Field(
+        default="",
+        description="搜索路径，相对于 IoTDB 源码根目录（可选，默认为根目录）",
+    )
+    file_type: str = Field(
+        default="f",
+        description="文件类型：'f' 表示普通文件（默认），'d' 表示目录",
+    )
+
+
 class BashInput(BaseModel):
     """Bash 执行的输入参数"""
 
@@ -152,6 +170,12 @@ class PRAnalysisLangChain:
             Returns:
                 完整文件内容（给模型分析用）
             """
+            # 参数验证
+            if not file_path or not file_path.strip():
+                error_msg = "错误: 必须提供 file_path 参数（文件路径不能为空）"
+                print(f"❌ {error_msg}")
+                return error_msg
+
             try:
                 full_path = self.iotdb_source_dir / file_path
                 if not full_path.exists():
@@ -178,7 +202,11 @@ class PRAnalysisLangChain:
         return StructuredTool.from_function(
             func=read_file,
             name="read",
-            description="读取 IoTDB 源码文件的内容。文件路径相对于 IoTDB 源码根目录。",
+            description=(
+                "读取 IoTDB 源码文件的完整内容。"
+                "**必须提供 file_path 参数**，文件路径相对于 IoTDB 源码根目录。"
+                "示例调用: {'file_path': 'iotdb-core/datanode/src/main/java/org/apache/iotdb/db/queryengine/execution/operator/process/TableIntoOperator.java'}"
+            ),
             args_schema=ReadFileInput,
         )
 
@@ -196,6 +224,12 @@ class PRAnalysisLangChain:
             Returns:
                 匹配的文件列表（JSON 格式）
             """
+            # 参数验证
+            if not pattern or not pattern.strip():
+                error_msg = "错误: 必须提供 pattern 参数（glob 模式不能为空）"
+                print(f"❌ {error_msg}")
+                return json.dumps({"success": False, "error": error_msg})
+
             try:
                 search_dir = (
                     self.iotdb_source_dir / path if path else self.iotdb_source_dir
@@ -228,7 +262,12 @@ class PRAnalysisLangChain:
         return StructuredTool.from_function(
             func=glob_files,
             name="glob",
-            description="使用 glob 模式查找匹配的文件。支持 ** 通配符。",
+            description=(
+                "使用 glob 模式查找匹配的文件。支持 ** 通配符。"
+                "**必须提供 pattern 参数**（如 '**/*.java', '**/*Operator*.java'）。"
+                "path 参数可选，默认在 IoTDB 源码根目录搜索。"
+                "示例调用: {'pattern': '**/*TableIntoOperator*.java'} 或 {'pattern': '*.xml', 'path': 'iotdb-core/datanode'}"
+            ),
             args_schema=GlobInput,
         )
 
@@ -247,6 +286,12 @@ class PRAnalysisLangChain:
             Returns:
                 搜索结果（JSON 格式）
             """
+            # 参数验证（防御性编程）
+            if not pattern or not pattern.strip():
+                error_msg = "错误: 必须提供 pattern 参数（搜索模式不能为空）"
+                print(f"❌ {error_msg}")
+                return json.dumps({"success": False, "error": error_msg})
+
             try:
                 search_dir = (
                     self.iotdb_source_dir / path if path else self.iotdb_source_dir
@@ -322,8 +367,109 @@ class PRAnalysisLangChain:
         return StructuredTool.from_function(
             func=grep_search,
             name="grep",
-            description="在 IoTDB 源码中搜索匹配的内容。使用正则表达式模式。",
+            description=(
+                "在 IoTDB 源码中搜索匹配的内容（使用正则表达式）。"
+                "**必须提供 pattern 参数**（正则表达式模式）。"
+                "path 和 file_type 参数可选，默认在整个源码目录搜索所有文件类型。"
+                "示例调用: {'pattern': 'class.*TableIntoOperator'} 或 {'pattern': 'INSERT INTO', 'path': 'iotdb-core', 'file_type': 'java'}"
+            ),
             args_schema=GrepInput,
+        )
+
+    def _create_find_tool(self) -> BaseTool:
+        """创建 Find 查找文件工具"""
+
+        def find_files(pattern: str, path: str = "", file_type: str = "f") -> str:
+            """
+            按文件名查找文件（类似 Unix find 命令）
+
+            Args:
+                pattern: 文件名模式（支持通配符 * 和 ?）
+                path: 搜索路径（相对于 IoTDB 源码根目录）
+                file_type: 文件类型（'f' 表示文件，'d' 表示目录）
+
+            Returns:
+                匹配的文件列表（JSON 格式）
+            """
+            # 参数验证（防御性编程）
+            if not pattern or not pattern.strip():
+                error_msg = "错误: 必须提供 pattern 参数（文件名模式不能为空）"
+                print(f"❌ {error_msg}")
+                return json.dumps({"success": False, "error": error_msg})
+
+            try:
+                search_dir = (
+                    self.iotdb_source_dir / path if path else self.iotdb_source_dir
+                )
+
+                if not search_dir.exists():
+                    print(f"❌ 搜索路径不存在: {path}")
+                    return json.dumps(
+                        {"success": False, "error": f"搜索路径不存在: {path}"}
+                    )
+
+                # 递归搜索所有文件/目录
+                matches = []
+                try:
+                    if file_type == "d":
+                        # 只查找目录
+                        all_items = [p for p in search_dir.rglob("*") if p.is_dir()]
+                    else:
+                        # 只查找文件（默认）
+                        all_items = [p for p in search_dir.rglob("*") if p.is_file()]
+
+                    # 使用 fnmatch 过滤文件名
+                    for item in all_items:
+                        if fnmatch.fnmatch(item.name, pattern):
+                            try:
+                                rel_path = str(item.relative_to(self.iotdb_source_dir))
+                                matches.append(rel_path)
+                            except ValueError:
+                                # 如果路径不在 iotdb_source_dir 下，跳过
+                                continue
+
+                        # 限制结果数量
+                        if len(matches) >= 100:
+                            break
+
+                except Exception as e:
+                    print(f"❌ 搜索过程出错: {str(e)}")
+                    return json.dumps(
+                        {"success": False, "error": f"搜索过程出错: {str(e)}"}
+                    )
+
+                # 控制台显示搜索结果
+                search_info = f"模式: '{pattern}'"
+                if path:
+                    search_info += f", 路径: {path}"
+                type_str = "目录" if file_type == "d" else "文件"
+                print(
+                    f"🔎 Find 搜索 {search_info} ({type_str}) -> 找到 {len(matches)} 个匹配"
+                )
+
+                result = {
+                    "success": True,
+                    "matches": matches,
+                    "count": len(matches),
+                }
+                return json.dumps(result, ensure_ascii=False, indent=2)
+
+            except Exception as e:
+                print(f"❌ Find 搜索失败: {pattern} - {str(e)}")
+                return json.dumps(
+                    {"success": False, "error": f"Find 搜索失败: {str(e)}"}
+                )
+
+        return StructuredTool.from_function(
+            func=find_files,
+            name="find",
+            description=(
+                "按文件名查找文件（支持通配符 * 和 ?）。比 glob 更灵活，可以递归搜索整个目录树。"
+                "**必须提供 pattern 参数**（文件名模式，如 '*Operator.java', 'test_*.py'）。"
+                "path 和 file_type 参数可选，默认在整个源码目录搜索文件（不含目录）。"
+                "示例调用: {'pattern': '*TableIntoOperator.java'} 或 {'pattern': 'pom.xml', 'path': 'iotdb-core'}"
+            ),
+            args_schema=FindInput,
         )
 
     def _create_bash_tool(self) -> BaseTool:
@@ -443,7 +589,12 @@ class PRAnalysisLangChain:
         return StructuredTool.from_function(
             func=run_bash,
             name="bash",
-            description="执行安全的 git 命令（只允许只读命令和 checkout）。在 IoTDB 源码目录中执行。",
+            description=(
+                "执行安全的 git 命令（只允许只读命令和 checkout）。在 IoTDB 源码目录中执行。"
+                "**必须提供 command 参数**（git 命令字符串）。"
+                "允许的命令: checkout, status, log, show, diff, branch, rev-parse, ls-tree, ls-files。"
+                "示例调用: {'command': 'git checkout <commit_sha>'} 或 {'command': 'git log --oneline -5'}"
+            ),
             args_schema=BashInput,
         )
 
@@ -453,6 +604,7 @@ class PRAnalysisLangChain:
             self._create_read_tool(),
             self._create_glob_tool(),
             self._create_grep_tool(),
+            self._create_find_tool(),
             self._create_bash_tool(),
         ]
 
@@ -506,15 +658,24 @@ class PRAnalysisLangChain:
 **重要：在分析之前，请务必按照以下步骤操作：**
 1. 使用 bash 工具执行 git checkout 命令，将IoTDB源码切换到 PR 的 merge_commit（查询中会提供该 commit SHA）
    - 例如：bash 工具执行 `git checkout <merge_commit_sha>`
-2. 使用 glob 工具查找 diff 中涉及的源码文件（例如：`**/ClassName.java`）
-3. 使用 read 工具读取这些完整的源码文件
-4. 使用 grep 工具搜索相关的类、方法或关键字以获取更多上下文
+2. 使用 glob 工具查找匹配的文件（例如：`**/*.java`）
+3. 如果 glob 工具找不到文件，使用 find 工具按文件名查找 diff 中涉及的源码文件（例如：`*ClassName.java`）
+   - find 工具支持通配符 * 和 ?，可以递归搜索整个目录树
+4. 使用 read 工具读取这些完整的源码文件
+5. 使用 grep 工具搜索相关的类、方法或关键字以获取更多上下文
+
+**工具说明：**
+- find: 按文件名查找（如 `*Operator.java`），递归搜索整个目录树，支持通配符 * 和 ?
+- glob: 按路径模式查找（如 `**/*.java`），使用 glob 语法
+- grep: 在文件内容中搜索（使用正则表达式）
+- read: 读取完整文件内容
+- bash: 执行安全的 git 命令
 
 注意：bash 工具只允许执行安全的 git 命令（checkout, status, log, show, diff 等），禁止使用 push、reset、clean 等危险命令。"""
 
             print(f"🚀 正在使用 LangChain Agent 进行分析...")
             print(
-                f"   工具支持: {'启用 (read, glob, grep, bash)' if enable_tools else '禁用'}"
+                f"   工具支持: {'启用 (read, glob, grep, find, bash)' if enable_tools else '禁用'}"
             )
             print("\n=== Claude 分析结果 ===\n")
 

@@ -155,9 +155,9 @@ class VectorStoreRunnable:
             }
 
             # 检查是否已存在
-            # if self.vector_store.pr_exists(pr_number):
-            #     print(f"⚠️ PR #{pr_number} 已存在，更新记录...")
-            #     self.vector_store.delete_pr_analysis(pr_number)
+            if self.vector_store.pr_exists(pr_number):
+                print(f"⚠️ PR #{pr_number} 已存在，更新记录...")
+                self.vector_store.delete_pr_analysis(pr_number)
 
             # 添加到向量数据库
             success = self.vector_store.add_pr_analysis(
