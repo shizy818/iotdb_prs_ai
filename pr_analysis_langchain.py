@@ -134,6 +134,14 @@ class BashInput(BaseModel):
     )
 
 
+class GitInput(BaseModel):
+    """Git 命令的输入参数"""
+
+    command: str = Field(
+        description="要执行的 git 命令（支持管道和重定向，如 'git show HEAD~1:file.java | grep pattern'）"
+    )
+
+
 class PRAnalysisLangChain:
     """使用 LangChain 实现的 PR 分析器"""
 
@@ -593,9 +601,170 @@ class PRAnalysisLangChain:
                 "执行安全的 git 命令（只允许只读命令和 checkout）。在 IoTDB 源码目录中执行。"
                 "**必须提供 command 参数**（git 命令字符串）。"
                 "允许的命令: checkout, status, log, show, diff, branch, rev-parse, ls-tree, ls-files。"
-                "示例调用: {'command': 'git checkout <commit_sha>'} 或 {'command': 'git log --oneline -5'}"
+                "\n\n**重要限制**："
+                "\n- ❌ 不支持管道 (|)、重定向 (>, >>)、命令链接 (&&, ;) 等 shell 特性"
+                "\n- ❌ 如果需要搜索 git show 的输出，请使用 grep 工具而不是管道"
+                "\n- ✅ 正确示例: {'command': 'git show HEAD:file.java'}，然后单独使用 grep 工具搜索"
+                "\n- ❌ 错误示例: {'command': 'git show HEAD:file.java | grep pattern'}（会失败）"
+                "\n\n示例调用: {'command': 'git checkout <commit_sha>'} 或 {'command': 'git log --oneline -5'}"
             ),
             args_schema=BashInput,
+        )
+
+    def _create_git_tool(self) -> BaseTool:
+        """创建 Git 执行工具（支持管道、重定向等 shell 特性）"""
+
+        def run_git(command: str) -> str:
+            """
+            执行安全的 git 命令（支持管道和重定向）
+
+            Args:
+                command: 要执行的 git 命令（支持管道，如 'git show HEAD:file | grep pattern'）
+
+            Returns:
+                命令执行结果
+            """
+            try:
+                # 基本验证
+                cmd_stripped = command.strip()
+                if not cmd_stripped:
+                    print(f"❌ 命令为空")
+                    return "错误: 命令为空"
+
+                # 检查是否以 git 开头
+                if not cmd_stripped.lower().startswith("git "):
+                    print(f"❌ 只允许 git 命令, 当前命令 {cmd_stripped}")
+                    return "错误: 只允许 git 命令"
+
+                # 提取 git 子命令（处理管道情况）
+                # 例如: "git show HEAD | grep" -> 提取 "show"
+                git_part = cmd_stripped.split("|")[0].strip()  # 取管道前的部分
+                cmd_parts = git_part.split()
+                if len(cmd_parts) < 2:
+                    print(f"❌ Git 命令不完整")
+                    return "错误: Git 命令不完整"
+
+                git_subcmd = cmd_parts[1].lower()
+
+                # 允许的安全 git 命令（只读 + checkout）
+                safe_git_commands = {
+                    "checkout",
+                    "status",
+                    "log",
+                    "show",
+                    "diff",
+                    "branch",
+                    "rev-parse",
+                    "ls-tree",
+                    "ls-files",
+                }
+
+                # 危险命令黑名单
+                dangerous_git_commands = {
+                    "push",
+                    "reset",
+                    "clean",
+                    "rm",
+                    "commit",
+                    "rebase",
+                    "merge",
+                    "pull",
+                    "fetch",
+                    "add",
+                }
+
+                if git_subcmd in dangerous_git_commands:
+                    print(f"❌ 禁止执行危险的 git 命令: git {git_subcmd}")
+                    return f"错误: 禁止执行危险的 git 命令: git {git_subcmd}"
+
+                if git_subcmd not in safe_git_commands:
+                    allowed_list = ", ".join(sorted(safe_git_commands))
+                    print(f"❌ Git 命令 '{git_subcmd}' 不在允许列表中")
+                    return f"错误: Git 命令 '{git_subcmd}' 不在允许列表中（允许: {allowed_list}）"
+
+                # 额外的安全检查：防止命令注入
+                dangerous_patterns = [
+                    ";rm ",
+                    ";curl ",
+                    ";wget ",
+                    "&&rm ",
+                    "$(curl",
+                    "`curl",
+                    ";sh ",
+                    ";bash ",
+                ]
+                cmd_lower = cmd_stripped.lower()
+                for pattern in dangerous_patterns:
+                    if pattern in cmd_lower:
+                        print(f"❌ 检测到危险模式: {pattern}")
+                        return f"错误: 检测到危险模式: {pattern}"
+
+                # 使用 shell=True 执行命令（支持管道）
+                result = subprocess.run(
+                    cmd_stripped,
+                    shell=True,  # 支持管道、重定向等
+                    cwd=str(self.iotdb_source_dir),
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+
+                # 合并 stdout 和 stderr
+                output = result.stdout
+                if result.stderr:
+                    output += "\n" + result.stderr
+
+                # 控制台显示执行结果
+                if result.returncode == 0:
+                    print(f"✅ Git 命令执行成功: {cmd_stripped}")
+                    # 只显示输出的前几行（避免刷屏）
+                    output_lines = output.strip().split("\n")
+                    if len(output_lines) > 5:
+                        preview = "\n".join(output_lines[:5])
+                        print(
+                            f"   输出预览 (前5行):\n{preview}\n   ... (共 {len(output_lines)} 行)"
+                        )
+                    else:
+                        print(f"   输出:\n{output.strip()}")
+                else:
+                    print(
+                        f"❌ Git 命令执行失败 (退出码: {result.returncode}): {cmd_stripped}"
+                    )
+
+                # 返回完整输出给模型
+                return (
+                    output.strip()
+                    if result.returncode == 0
+                    else f"错误 (退出码 {result.returncode}): {output.strip()}"
+                )
+
+            except subprocess.TimeoutExpired:
+                print(f"❌ 命令执行超时（30秒）: {command}")
+                return "错误: 命令执行超时（30秒）"
+            except Exception as e:
+                print(f"❌ 命令执行失败: {command} - {str(e)}")
+                return f"错误: 命令执行失败: {str(e)}"
+
+        return StructuredTool.from_function(
+            func=run_git,
+            name="git",
+            description=(
+                "执行安全的 git 命令（支持管道、重定向等 shell 特性）。在 IoTDB 源码目录中执行。"
+                "\n\n**支持的特性**："
+                "\n- ✅ 支持管道 (|)：'git show HEAD:file.java | grep pattern'"
+                "\n- ✅ 支持重定向 (>, >>)：'git log > output.txt'"
+                "\n- ✅ 支持命令链接 (&&)：'git checkout main && git status'"
+                "\n\n**允许的 git 子命令**："
+                "\n- 只读命令：status, log, show, diff, branch, rev-parse, ls-tree, ls-files"
+                "\n- git checkout（用于切换分支/提交）"
+                "\n\n**禁止的危险命令**："
+                "\n- push, reset, clean, rm, commit, rebase, merge, pull, fetch, add"
+                "\n\n**示例调用**："
+                "\n- {'command': 'git show HEAD~1:file.java | grep -A 10 pattern'}"
+                "\n- {'command': 'git checkout <commit_sha>'}"
+                "\n- {'command': 'git log --oneline -5'}"
+            ),
+            args_schema=GitInput,
         )
 
     def _create_tools(self) -> List[BaseTool]:
@@ -604,8 +773,9 @@ class PRAnalysisLangChain:
             self._create_read_tool(),
             self._create_glob_tool(),
             self._create_grep_tool(),
-            self._create_find_tool(),
-            self._create_bash_tool(),
+            # self._create_find_tool(),
+            self._create_git_tool(),
+            # self._create_bash_tool(),
         ]
 
     def get_pr_by_number(self, pr_number: Optional[int] = None) -> Optional[Dict]:
@@ -655,27 +825,61 @@ class PRAnalysisLangChain:
             if enable_tools:
                 system_prompt += """
 
-**重要：在分析之前，请务必按照以下步骤操作：**
-1. 使用 bash 工具执行 git checkout 命令，将IoTDB源码切换到 PR 的 merge_commit（查询中会提供该 commit SHA）
-   - 例如：bash 工具执行 `git checkout <merge_commit_sha>`
-2. 使用 glob 工具查找匹配的文件（例如：`**/*.java`）
-3. 如果 glob 工具找不到文件，使用 find 工具按文件名查找 diff 中涉及的源码文件（例如：`*ClassName.java`）
-   - find 工具支持通配符 * 和 ?，可以递归搜索整个目录树
-4. 使用 read 工具读取这些完整的源码文件
-5. 使用 grep 工具搜索相关的类、方法或关键字以获取更多上下文
+  🚀 IoTDB PR 代码分析工作流
 
-**工具说明：**
-- find: 按文件名查找（如 `*Operator.java`），递归搜索整个目录树，支持通配符 * 和 ?
-- glob: 按路径模式查找（如 `**/*.java`），使用 glob 语法
-- grep: 在文件内容中搜索（使用正则表达式）
-- read: 读取完整文件内容
-- bash: 执行安全的 git 命令
+  核心原则： 在进行任何代码分析之前，必须先完成环境准备和代码获取步骤。
 
-注意：bash 工具只允许执行安全的 git 命令（checkout, status, log, show, diff 等），禁止使用 push、reset、clean 等危险命令。"""
+  第一步：环境准备
+
+  1. 切换到指定提交
+    - 使用 git 工具执行 git checkout <merge_commit_sha>
+    - 确保工作目录处于正确的 commit 状态
+    - 验证切换成功后再进行后续操作
+
+  第二步：代码发现与定位
+
+  2. 智能文件发现
+    - 使用 glob 工具按路径模式查找相关文件
+        - 示例：**/*.java（查找所有 Java 文件）
+      - 示例：src/main/java/**/*.java（查找主代码目录）
+      - 支持 glob 语法模式匹配
+  3. 深度代码分析
+    - 使用 read 工具读取完整的源码文件内容
+    - 使用 grep 工具搜索相关的类、方法或关键字以获取更多上下文
+    - 确保分析的是完整且准确的代码内容
+
+  🛠️ 工具使用指南
+
+  | 工具   | 用途     | 使用示例                     | 注意事项                        |
+  |------|--------|--------------------------|-----------------------------|
+  | git  | 版本控制操作 | git checkout <sha>       | 仅支持安全命令，禁止 push/reset/clean |
+  | glob | 文件路径匹配 | **/*.java                | 使用 glob 语法，支持递归匹配           |
+  | grep | 内容搜索   | grep "class.*Exception"  | 支持正则表达式，可指定文件类型             |
+  | read | 读取文件内容 | read "path/to/file.java" | 必须使用完整绝对路径                  |
+
+  ⚠️ 安全性与最佳实践
+
+  Git 工具安全限制：
+  - ✅ 允许操作: checkout, status, log, show, diff, branch
+  - ❌ 禁止操作: push, reset, clean, revert, rm
+  - ✅ 支持特性: 管道操作、重定向、shell 语法
+
+  操作检查清单：
+  - 验证 git checkout 成功执行
+  - 确认 glob 查找到目标文件
+  - 检查 read 读取的文件完整性
+  - 使用 grep 获取充分的上下文信息
+
+  💡 优化建议
+
+  1. 效率提升: 先用 grep 快速定位相关代码，再用 read 深入分析
+  2. 准确性: 优先分析核心文件，再扩展到相关依赖
+  3. 上下文: 不仅要看改动内容，还要理解整体代码结构
+  4. 验证: 每个 step 完成后进行状态检查"""
 
             print(f"🚀 正在使用 LangChain Agent 进行分析...")
             print(
-                f"   工具支持: {'启用 (read, glob, grep, find, bash)' if enable_tools else '禁用'}"
+                f"   工具支持: {'启用 (read, glob, grep, git)' if enable_tools else '禁用'}"
             )
             print("\n=== Claude 分析结果 ===\n")
 
