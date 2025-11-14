@@ -18,6 +18,8 @@ from config import ANTHROPIC_BASE_URL, ANTHROPIC_API_KEY
 # 配置智谱AI的Anthropic兼容接口
 os.environ["ANTHROPIC_BASE_URL"] = ANTHROPIC_BASE_URL
 os.environ["ANTHROPIC_API_KEY"] = ANTHROPIC_API_KEY
+
+
 def main():
     """使用 LangChain 调用 Claude"""
 

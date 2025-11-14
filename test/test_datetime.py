@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from database import convert_iso_to_mysql_datetime
 
+
 def test_datetime_conversion():
     test_cases = [
         ("2025-03-18T01:57:54Z", "2025-03-18 01:57:54"),
@@ -23,6 +24,7 @@ def test_datetime_conversion():
         result = convert_iso_to_mysql_datetime(input_val)
         status = "✓" if result == expected else "✗"
         print(f"{status} Input: {input_val} -> Output: {result} (Expected: {expected})")
+
 
 if __name__ == "__main__":
     test_datetime_conversion()

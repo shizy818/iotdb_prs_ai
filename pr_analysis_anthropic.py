@@ -11,6 +11,7 @@ from config import ANTHROPIC_BASE_URL, ANTHROPIC_API_KEY, DEFAULT_IOTDB_SOURCE_D
 from pr_analysis_common import (
     build_analysis_query,
     get_pr_by_number,
+    get_tool_system_prompt,
 )
 
 
@@ -74,14 +75,14 @@ def get_tool_definitions() -> List[Dict]:
             },
         },
         {
-            "name": "bash",
-            "description": "执行安全的 git 命令（只允许只读命令和 checkout）。在 IoTDB 源码目录中执行。",
+            "name": "git",
+            "description": "执行 Git 命令（禁止管道、重定向等 shell 特性）。在 IoTDB 源码目录中执行。",
             "input_schema": {
                 "type": "object",
                 "properties": {
                     "command": {
                         "type": "string",
-                        "description": "要执行的 git 命令（如 'git checkout <commit_sha>', 'git status', 'git log'）",
+                        "description": "要执行的 Git 命令（纯git命令，不支持管道和重定向，如 'git status', 'git log', 'git diff HEAD~1'）",
                     }
                 },
                 "required": ["command"],
@@ -218,31 +219,37 @@ class PRAnalysisAnthropic:
         except Exception as e:
             return {"success": False, "error": f"Grep 搜索失败: {str(e)}"}
 
-    def _execute_bash_tool(self, command: str) -> Dict:
+    def _execute_git_tool(self, command: str) -> Dict:
         """
-        执行 bash 工具：只允许安全的 git 命令
+        执行 git 工具：禁止管道、重定向等 shell 特性
 
         Args:
-            command: 要执行的命令
+            command: 要执行的 Git 命令（纯git命令，不支持管道和重定向）
 
         Returns:
             工具执行结果
         """
         try:
-            # 解析命令
-            cmd_parts = command.strip().split()
-            if not cmd_parts:
-                return {"success": False, "error": "命令为空"}
+            # 基本验证
+            cmd_stripped = command.strip()
+            if not cmd_stripped:
+                return {"success": False, "error": "Git 命令为空"}
 
-            first_cmd = cmd_parts[0].lower()
+            # 检查是否以 git 开头
+            if not cmd_stripped.lower().startswith("git "):
+                return {"success": False, "error": "只允许 git 命令"}
 
-            # 只允许 git 命令
-            if first_cmd != "git":
-                return {
-                    "success": False,
-                    "error": f"只允许 git 命令，不允许: {first_cmd}",
-                }
+            # 检查是否包含管道或重定向操作符
+            shell_operators = ["|", ">", ">>", "<", "&&", "||", ";"]
+            for operator in shell_operators:
+                if operator in cmd_stripped:
+                    return {
+                        "success": False,
+                        "error": f"Git 命令不允许包含 shell 操作符 '{operator}'。请使用纯 git 命令。",
+                    }
 
+            # 解析 git 命令
+            cmd_parts = cmd_stripped.split()
             if len(cmd_parts) < 2:
                 return {"success": False, "error": "Git 命令不完整"}
 
@@ -282,14 +289,16 @@ class PRAnalysisAnthropic:
                 }
 
             if git_subcmd not in safe_git_commands:
+                allowed_list = ", ".join(sorted(safe_git_commands))
                 return {
                     "success": False,
-                    "error": f"Git 命令 '{git_subcmd}' 不在允许列表中（允许: {', '.join(sorted(safe_git_commands))}）",
+                    "error": f"Git 命令 '{git_subcmd}' 不在允许列表中（允许: {allowed_list}）",
                 }
 
-            # 执行命令
+            # 使用 shell=False 执行命令（禁用管道、重定向等）
             result = subprocess.run(
-                cmd_parts,
+                cmd_parts,  # 使用列表形式，避免shell注入
+                shell=False,  # 禁用shell特性，提高安全性
                 cwd=str(self.iotdb_source_dir),
                 capture_output=True,
                 text=True,
@@ -335,8 +344,8 @@ class PRAnalysisAnthropic:
                 tool_input.get("path", "") or "",
                 tool_input.get("file_type", "") or "",
             )
-        elif tool_name == "bash":
-            return self._execute_bash_tool(tool_input.get("command", ""))
+        elif tool_name == "git":
+            return self._execute_git_tool(tool_input.get("command", ""))
         else:
             return {"success": False, "error": f"未知工具: {tool_name}"}
 
@@ -394,26 +403,20 @@ class PRAnalysisAnthropic:
             query_size = len(query)
             print(f"📊 完整查询大小: {query_size:,} 字符 (~{query_size // 4:,} tokens)")
 
-            # 构建系统提示
-            system_prompt = "您是一名时序数据库IoTDB专家，请根据提供的PR信息和本地iotdb源码进行分析，然后提供详细的分析结果。"
-            if enable_tools:
-                system_prompt += """
-
-**重要：在分析之前，请务必按照以下步骤操作：**
-1. 使用 bash 工具执行 git checkout 命令，将IoTDB源码切换到 PR 的 merge_commit（查询中会提供该 commit SHA）
-   - 例如：bash 工具执行 `git checkout <merge_commit_sha>`
-2. 使用 glob 工具查找 diff 中涉及的源码文件（例如：`**/ClassName.java`）
-3. 使用 read 工具读取这些完整的源码文件
-4. 使用 grep 工具搜索相关的类、方法或关键字以获取更多上下文
-
-注意：bash 工具只允许执行安全的 git 命令（checkout, status, log, show, diff 等），禁止使用 push、reset、clean 等危险命令。"""
+            # 构建系统提示（使用公共函数）
+            system_prompt = (
+                get_tool_system_prompt()
+                if enable_tools
+                else "您是一名时序数据库IoTDB专家，请根据提供的PR信息和本地iotdb源码进行分析，然后提供详细的分析结果。"
+            )
+            print(system_prompt)
 
             print(f"🚀 正在使用 Anthropic API 发送分析请求...")
             print(f"   模型: GLM-4.6")
             print(f"   最大输出 tokens: {max_tokens:,}")
             print(f"   Temperature: {temperature}")
             print(
-                f"   工具支持: {'启用 (read, glob, grep, bash)' if enable_tools else '禁用'}"
+                f"   工具支持: {'启用 (read, glob, grep, git)' if enable_tools else '禁用'}"
             )
             print(f"   Prompt Caching: {'启用' if use_cache else '禁用'}")
 
@@ -536,9 +539,9 @@ class PRAnalysisAnthropic:
                                     print(
                                         f"   🔍 搜索: {tool_input.get('pattern', '')}"
                                     )
-                                elif tool_name == "bash":
+                                elif tool_name == "git":
                                     print(
-                                        f"   🌿 Bash 命令: {tool_input.get('command', '')}"
+                                        f"   🌿 Git 命令: {tool_input.get('command', '')}"
                                     )
 
                                 # 执行工具

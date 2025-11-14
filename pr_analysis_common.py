@@ -5,6 +5,36 @@ from pathlib import Path
 from database import DatabaseManager
 
 
+def get_tool_system_prompt() -> str:
+    """
+    获取工具调用的系统提示词
+
+    Returns:
+        str: 完整的系统提示词，包含PR分析工作流程指导
+    """
+    base_prompt = "您是一名时序数据库IoTDB专家，请根据提供的PR信息和本地iotdb源码进行分析，然后提供详细的分析结果。"
+
+    workflow_prompt = """
+IoTDB PR分析工作流：
+
+1. 环境准备：git checkout <merge_commit_sha>
+2. 文件发现：glob工具查找相关文件（如**/*.java）
+3. 代码分析：read读取文件，grep搜索关键内容
+
+工具说明：
+- git: 版本控制（仅支持checkout/status/log等安全操作）
+- glob: 文件模式匹配
+- grep: 代码内容搜索
+- read: 读取文件内容（需绝对路径）
+
+分析要点：
+- 先用grep定位，再用read深入分析
+- 理解代码改动和整体结构
+- 提供技术问题分析和影响评估"""
+
+    return base_prompt + workflow_prompt
+
+
 def build_analysis_query(pr_data: Dict, diff_content: str) -> str:
     """
     构建完整的一次性PR分析查询（用于小型diff）

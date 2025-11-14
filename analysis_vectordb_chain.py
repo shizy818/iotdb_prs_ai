@@ -15,7 +15,6 @@ from typing import Dict, Optional, Literal, List
 from langchain_core.runnables import RunnableLambda, RunnablePassthrough
 
 from pr_analysis_langchain import PRAnalysisLangChain
-from pr_analysis_cc_sdk import PRAnalysisClaudeAgentSDK
 from pr_analysis_anthropic import PRAnalysisAnthropic
 from vector_store import VectorStoreManager
 from database import DatabaseManager
@@ -55,8 +54,6 @@ class PRAnalysisRunnable:
         # 根据框架类型创建对应的 analyzer
         if framework == "langchain":
             self.analyzer = PRAnalysisLangChain()
-        elif framework == "claude_agent_sdk":
-            self.analyzer = PRAnalysisClaudeAgentSDK()
         elif framework == "anthropic":
             self.analyzer = PRAnalysisAnthropic()
         else:
@@ -474,9 +471,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--framework",
         type=str,
-        choices=["langchain", "claude_agent_sdk", "anthropic"],
+        choices=["langchain", "anthropic"],
         default="langchain",
-        help="分析框架 (默认: claude_agent_sdk)",
+        help="分析框架 (默认: langchain)",
     )
 
     # 工具和存储选项

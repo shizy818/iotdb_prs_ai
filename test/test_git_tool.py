@@ -136,20 +136,20 @@ def test_git_tool():
         print()
 
         # 选择工具
-        tool = git_tool if test['tool'] == 'git' else bash_tool
+        tool = git_tool if test["tool"] == "git" else bash_tool
         if not tool:
             print(f"⚠️ 跳过测试（工具不存在）")
             continue
 
         # 执行命令
         try:
-            result = tool.func(command=test['command'])
+            result = tool.func(command=test["command"])
 
             # 判断是否成功
             is_success = not result.startswith("错误")
 
             # 检查结果是否符合预期
-            if is_success == test['should_succeed']:
+            if is_success == test["should_succeed"]:
                 print(f"\n✅ 测试通过")
                 results.append(True)
             else:
@@ -201,6 +201,7 @@ def main():
     except Exception as e:
         print(f"\n\n❌ 测试过程出错: {e}")
         import traceback
+
         traceback.print_exc()
         return 1
 

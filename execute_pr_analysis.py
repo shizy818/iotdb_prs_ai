@@ -11,7 +11,6 @@ import sys
 from typing import Dict, Optional
 
 from pr_analysis_langchain import PRAnalysisLangChain
-from pr_analysis_cc_sdk import PRAnalysisClaudeAgentSDK
 from pr_analysis_anthropic import PRAnalysisAnthropic
 
 
@@ -57,21 +56,6 @@ async def analyze_with_langchain(
     """使用 LangChain 框架分析 PR"""
     print(f"📦 使用 LangChain 框架...")
     analyzer = PRAnalysisLangChain()
-    try:
-        result = await analyzer.analyze_pr(
-            pr_number=pr_number, enable_tools=enable_tools
-        )
-        return result
-    finally:
-        analyzer.close()
-
-
-async def analyze_with_claude_agent_sdk(
-    pr_number: Optional[int] = None, enable_tools: bool = True
-) -> Dict:
-    """使用 Claude Agent SDK 框架分析 PR"""
-    print(f"📦 使用 Claude Agent SDK 框架...")
-    analyzer = PRAnalysisClaudeAgentSDK()
     try:
         result = await analyzer.analyze_pr(
             pr_number=pr_number, enable_tools=enable_tools
