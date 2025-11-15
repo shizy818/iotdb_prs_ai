@@ -3,6 +3,9 @@ from mysql.connector import Error
 import os
 from datetime import datetime
 from config import DEFAULT_DB_CONFIG
+from logger_config import setup_logger
+
+logger = setup_logger(__name__)
 
 
 def convert_iso_to_mysql_datetime(iso_datetime):
@@ -37,9 +40,11 @@ class DatabaseManager:
                 autocommit=True,
             )
             if self.connection.is_connected():
-                print(f"Connected to MySQL database: {DEFAULT_DB_CONFIG['database']}")
+                logger.info(
+                    f"Connected to MySQL database: {DEFAULT_DB_CONFIG['database']}"
+                )
         except Error as e:
-            print(f"Error connecting to MySQL: {e}")
+            logger.error(f"Error connecting to MySQL: {e}")
             raise
 
     def create_tables(self):
@@ -105,9 +110,9 @@ class DatabaseManager:
             cursor.execute(create_comments_table)
             cursor.execute(create_images_table)
             cursor.execute(create_diffs_table)
-            print("Tables created successfully")
+            logger.info("Tables created successfully")
         except Error as e:
-            print(f"Error creating tables: {e}")
+            logger.error(f"Error creating tables: {e}")
         finally:
             cursor.close()
 
@@ -141,7 +146,7 @@ class DatabaseManager:
             self.connection.commit()
             return True
         except Error as e:
-            print(f"Error inserting PR: {e}")
+            logger.error(f"Error inserting PR: {e}")
             return False
         finally:
             cursor.close()
@@ -149,7 +154,7 @@ class DatabaseManager:
     def insert_comment(self, comment_data):
         # 过滤掉包含 [bot] 的作者
         if "[bot]" in comment_data.get("user", "").lower():
-            print(f"跳过bot评论: {comment_data.get('user', '')}")
+            logger.info(f"跳过bot评论: {comment_data.get('user', '')}")
             return True
 
         query = """
@@ -174,7 +179,7 @@ class DatabaseManager:
             self.connection.commit()
             return True
         except Error as e:
-            print(f"Error inserting comment: {e}")
+            logger.error(f"Error inserting comment: {e}")
             return False
         finally:
             cursor.close()
@@ -201,7 +206,7 @@ class DatabaseManager:
             self.connection.commit()
             return True
         except Error as e:
-            print(f"Error inserting image: {e}")
+            logger.error(f"Error inserting image: {e}")
             return False
         finally:
             cursor.close()
@@ -224,7 +229,7 @@ class DatabaseManager:
             self.connection.commit()
             return True
         except Error as e:
-            print(f"Error inserting diff: {e}")
+            logger.error(f"Error inserting diff: {e}")
             return False
         finally:
             cursor.close()
@@ -241,7 +246,7 @@ class DatabaseManager:
             result = cursor.fetchone()
             return result is not None
         except Error as e:
-            print(f"Error checking PR existence: {e}")
+            logger.error(f"Error checking PR existence: {e}")
             return False
         finally:
             cursor.close()
@@ -251,7 +256,7 @@ class DatabaseManager:
         cursor = self.connection.cursor()
         try:
             # 调试信息：检查连接状态
-            print(
+            logger.debug(
                 f"开始处理PR #{pr_data['number']}: autocommit={self.connection.autocommit}, in_transaction={self.connection.in_transaction}"
             )
 
@@ -298,7 +303,7 @@ class DatabaseManager:
                 for comment in comments_list:
                     # 过滤掉包含 [bot] 的作者
                     if "[bot]" in comment.get("user", "").lower():
-                        print(f"跳过bot评论: {comment.get('user', '')}")
+                        logger.info(f"跳过bot评论: {comment.get('user', '')}")
                         continue
 
                     cursor.execute(
@@ -319,7 +324,7 @@ class DatabaseManager:
 
         except Error as e:
             self.connection.rollback()
-            print(f"事务失败，已回滚: {e}")
+            logger.error(f"事务失败，已回滚: {e}")
             return False
         finally:
             cursor.close()
@@ -333,7 +338,7 @@ class DatabaseManager:
             self.connection.commit()
             return cursor.rowcount > 0
         except Error as e:
-            print(f"删除PR失败: {e}")
+            logger.error(f"删除PR失败: {e}")
             return False
         finally:
             cursor.close()
@@ -361,7 +366,7 @@ class DatabaseManager:
             results = cursor.fetchall()
             return [row[0] for row in results]
         except Error as e:
-            print(f"查询PR失败: {e}")
+            logger.error(f"查询PR失败: {e}")
             return []
         finally:
             cursor.close()

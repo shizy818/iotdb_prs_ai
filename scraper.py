@@ -2,6 +2,9 @@ import json
 from database import DatabaseManager
 from github_client import GitHubClient
 from config import GITHUB_TOKEN
+from logger_config import setup_logger
+
+logger = setup_logger(__name__)
 
 
 """
@@ -22,11 +25,11 @@ class PRScraper:
         """
         Process a single pull request
         """
-        print(f"Processing PR #{pr['number']}: {pr['title']}")
+        logger.info(f"Processing PR #{pr['number']}: {pr['title']}")
 
         # Check if PR already exists in database
         if self.db.pr_exists(pr["number"]):
-            print(f"PR #{pr['number']} already exists, skipping...")
+            logger.info(f"PR #{pr['number']} already exists, skipping...")
             return True
 
         # Extract PR data
@@ -50,7 +53,9 @@ class PRScraper:
         # Get diff content
         diff_content, error = self.github.get_diff_content(pr["diff_url"])
         if error:
-            print(f"Failed to fetch diff content for PR #{pr['number']}: {error}")
+            logger.error(
+                f"Failed to fetch diff content for PR #{pr['number']}: {error}"
+            )
             return False
 
         # Get comments data from PR object (already fetched via GraphQL)
@@ -58,7 +63,7 @@ class PRScraper:
 
         # Process PR, diff and comments in one transaction
         if self.db.insert_pr_diff_comments(pr_data, diff_content, comments_data):
-            print(f"Successfully processed PR #{pr['number']} with all data")
+            logger.info(f"Successfully processed PR #{pr['number']} with all data")
 
             # Process images one by one after PR data is saved
             # 暂时不处理评论中的图片
@@ -66,7 +71,7 @@ class PRScraper:
             #     self.process_comment_images(comment["id"], comment["body"])
             return True
         else:
-            print(f"Failed to process PR #{pr['number']}")
+            logger.error(f"Failed to process PR #{pr['number']}")
             return False
 
     def process_comment_images(self, comment_id, comment_body):
@@ -81,7 +86,7 @@ class PRScraper:
         if not image_urls:
             return
 
-        print(f"Found {len(image_urls)} images in comment {comment_id}")
+        logger.info(f"Found {len(image_urls)} images in comment {comment_id}")
 
         for image_url in image_urls:
             self.process_image(comment_id, image_url)
@@ -90,7 +95,7 @@ class PRScraper:
         """
         Process a single image
         """
-        print(f"Downloading image from {image_url}")
+        logger.info(f"Downloading image from {image_url}")
 
         image_data = self.github.download_image(image_url)
 
@@ -105,39 +110,39 @@ class PRScraper:
             }
 
             if self.db.insert_image(image_record):
-                print(f"Stored image {image_record['filename']}")
+                logger.info(f"Stored image {image_record['filename']}")
             else:
-                print(f"Failed to store image {image_record['filename']}")
+                logger.error(f"Failed to store image {image_record['filename']}")
         else:
-            print(f"Failed to download image from {image_url}")
+            logger.error(f"Failed to download image from {image_url}")
 
     def run_single_pr(self, pr_number):
         """
         Run the scraper for a single PR
         """
         try:
-            print(f"Starting PR scraper for #{pr_number} at {datetime.now()}")
-            print(f"Fetching PR #{pr_number}...")
+            logger.info(f"Starting PR scraper for #{pr_number} at {datetime.now()}")
+            logger.info(f"Fetching PR #{pr_number}...")
 
             pr, error = self.github.get_iotdb_pr(pr_number)
 
             if error:
-                print(f"Could not fetch PR #{pr_number}: {error}")
+                logger.error(f"Could not fetch PR #{pr_number}: {error}")
                 return
 
             # Check if PR is merged
             if not pr.get("merged_at"):
-                print(f"PR #{pr_number} is not merged, skipping...")
+                logger.info(f"PR #{pr_number} is not merged, skipping...")
                 return
 
             success = self.process_pr(pr)
             if success:
-                print(f"Successfully scraped PR #{pr_number}")
+                logger.info(f"Successfully scraped PR #{pr_number}")
             else:
-                print(f"Failed to scrape PR #{pr_number}")
-            print(f"Scraping completed at {datetime.now()}")
+                logger.error(f"Failed to scrape PR #{pr_number}")
+            logger.info(f"Scraping completed at {datetime.now()}")
         except Exception as e:
-            print(f"Error during scraping: {e}")
+            logger.error(f"Error during scraping: {e}")
         finally:
             self.db.close()
 
@@ -146,21 +151,23 @@ class PRScraper:
         Run the scraper for a specific date range
         """
         try:
-            print(f"Starting PR scraper from {since_date_str} at {datetime.now()}")
+            logger.info(
+                f"Starting PR scraper from {since_date_str} at {datetime.now()}"
+            )
             prs = self.github.get_iotdb_prs(since_date=since_date_str, days=days)
 
             if not prs:
-                print("No merged PRs found")
+                logger.info("No merged PRs found")
                 return
 
-            print(f"Found {len(prs)} merged PRs")
+            logger.info(f"Found {len(prs)} merged PRs")
 
             for pr in prs:
                 self.process_pr(pr)
 
-            print(f"Scraping completed at {datetime.now()}")
+            logger.info(f"Scraping completed at {datetime.now()}")
         except Exception as e:
-            print(f"Error during scraping: {e}")
+            logger.error(f"Error during scraping: {e}")
         finally:
             self.db.close()
 
@@ -194,7 +201,7 @@ if __name__ == "__main__":
         # Scrape from a specific start date
         scraper.run_by_date_range(args.since_date, args.days)
     else:
-        print("Error: Must specify either --pr_number or --since_date")
-        print("Examples:")
-        print("  python scraper.py --pr_number 12345")
-        print("  python scraper.py --since_date 2024-01-01 --days 7")
+        logger.error("Error: Must specify either --pr_number or --since_date")
+        logger.info("Examples:")
+        logger.info("  python scraper.py --pr_number 12345")
+        logger.info("  python scraper.py --since_date 2024-01-01 --days 7")

@@ -13,6 +13,9 @@ from typing import Dict, List, Optional, Any
 
 from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
+from logger_config import setup_logger
+
+logger = setup_logger(__name__)
 from langchain.tools import BaseTool, StructuredTool
 from langchain_anthropic import ChatAnthropic
 from langchain.callbacks.base import BaseCallbackHandler
@@ -65,12 +68,12 @@ class ThinkingCallbackHandler(BaseCallbackHandler):
     ) -> None:
         """工具开始时打印之前累积的思考内容"""
         if self.thinking_text:
-            print(self.thinking_text, flush=True)
+            logger.info(self.thinking_text)
             self.thinking_text = ""  # 清空，准备下一轮
 
     def on_tool_end(self, output: str, **kwargs: Any) -> None:
         """工具结束执行时调用"""
-        print()
+        logger.info("")
 
     def on_agent_action(self, action: Any, **kwargs: Any) -> None:
         """Agent 执行动作时调用"""
@@ -177,13 +180,13 @@ class PRAnalysisLangChain:
             # 参数验证
             if not file_path or not file_path.strip():
                 error_msg = "错误: 必须提供 file_path 参数（文件路径不能为空）"
-                print(f"❌ {error_msg}")
+                logger.error(f"❌ {error_msg}")
                 return error_msg
 
             try:
                 full_path = self.iotdb_source_dir / file_path
                 if not full_path.exists():
-                    print(f"❌ 文件不存在: {file_path}")
+                    logger.error(f"❌ 文件不存在: {file_path}")
                     return f"错误: 文件不存在: {file_path}"
 
                 # 读取文件内容（限制大小）
@@ -193,14 +196,14 @@ class PRAnalysisLangChain:
                 # 控制台只显示简要信息
                 file_size = len(content)
                 line_count = content.count("\n") + 1
-                print(
+                logger.info(
                     f"📖 已读取文件: {file_path} ({file_size:,} 字符, {line_count:,} 行)"
                 )
 
                 # 返回完整内容给模型
                 return content
             except Exception as e:
-                print(f"❌ 读取文件失败: {file_path} - {str(e)}")
+                logger.error(f"❌ 读取文件失败: {file_path} - {str(e)}")
                 return f"错误: 读取文件失败: {str(e)}"
 
         return StructuredTool.from_function(
@@ -231,7 +234,7 @@ class PRAnalysisLangChain:
             # 参数验证
             if not pattern or not pattern.strip():
                 error_msg = "错误: 必须提供 pattern 参数（glob 模式不能为空）"
-                print(f"❌ {error_msg}")
+                logger.error(f"❌ {error_msg}")
                 return json.dumps({"success": False, "error": error_msg})
 
             try:
@@ -247,7 +250,7 @@ class PRAnalysisLangChain:
 
                 # 控制台显示搜索结果
                 search_path = f"路径: {path if path else '根目录'}"
-                print(
+                logger.info(
                     f"🔍 Glob 搜索 '{pattern}' {search_path} -> 找到 {len(relative_paths)} 个文件"
                 )
 
@@ -258,7 +261,7 @@ class PRAnalysisLangChain:
                 }
                 return json.dumps(result, ensure_ascii=False, indent=2)
             except Exception as e:
-                print(f"❌ Glob 搜索失败: {pattern} - {str(e)}")
+                logger.error(f"❌ Glob 搜索失败: {pattern} - {str(e)}")
                 return json.dumps(
                     {"success": False, "error": f"Glob 搜索失败: {str(e)}"}
                 )
@@ -293,7 +296,7 @@ class PRAnalysisLangChain:
             # 参数验证（防御性编程）
             if not pattern or not pattern.strip():
                 error_msg = "错误: 必须提供 pattern 参数（搜索模式不能为空）"
-                print(f"❌ {error_msg}")
+                logger.error(f"❌ {error_msg}")
                 return json.dumps({"success": False, "error": error_msg})
 
             try:
@@ -345,7 +348,7 @@ class PRAnalysisLangChain:
                     search_info += f", 路径: {path}"
                 if file_type:
                     search_info += f", 类型: {file_type}"
-                print(f"🔎 Grep 搜索 {search_info} -> 找到 {len(matches)} 个匹配")
+                logger.info(f"🔎 Grep 搜索 {search_info} -> 找到 {len(matches)} 个匹配")
 
                 result_data = {
                     "success": True,
@@ -355,7 +358,7 @@ class PRAnalysisLangChain:
                 return json.dumps(result_data, ensure_ascii=False, indent=2)
 
             except FileNotFoundError:
-                print(f"❌ ripgrep (rg) 未安装，请安装: brew install ripgrep")
+                logger.error(f"❌ ripgrep (rg) 未安装，请安装: brew install ripgrep")
                 return json.dumps(
                     {
                         "success": False,
@@ -363,7 +366,7 @@ class PRAnalysisLangChain:
                     }
                 )
             except Exception as e:
-                print(f"❌ Grep 搜索失败: {pattern} - {str(e)}")
+                logger.error(f"❌ Grep 搜索失败: {pattern} - {str(e)}")
                 return json.dumps(
                     {"success": False, "error": f"Grep 搜索失败: {str(e)}"}
                 )
@@ -398,7 +401,7 @@ class PRAnalysisLangChain:
             # 参数验证（防御性编程）
             if not pattern or not pattern.strip():
                 error_msg = "错误: 必须提供 pattern 参数（文件名模式不能为空）"
-                print(f"❌ {error_msg}")
+                logger.error(f"❌ {error_msg}")
                 return json.dumps({"success": False, "error": error_msg})
 
             try:
@@ -407,7 +410,7 @@ class PRAnalysisLangChain:
                 )
 
                 if not search_dir.exists():
-                    print(f"❌ 搜索路径不存在: {path}")
+                    logger.error(f"❌ 搜索路径不存在: {path}")
                     return json.dumps(
                         {"success": False, "error": f"搜索路径不存在: {path}"}
                     )
@@ -437,7 +440,7 @@ class PRAnalysisLangChain:
                             break
 
                 except Exception as e:
-                    print(f"❌ 搜索过程出错: {str(e)}")
+                    logger.error(f"❌ 搜索过程出错: {str(e)}")
                     return json.dumps(
                         {"success": False, "error": f"搜索过程出错: {str(e)}"}
                     )
@@ -447,7 +450,7 @@ class PRAnalysisLangChain:
                 if path:
                     search_info += f", 路径: {path}"
                 type_str = "目录" if file_type == "d" else "文件"
-                print(
+                logger.info(
                     f"🔎 Find 搜索 {search_info} ({type_str}) -> 找到 {len(matches)} 个匹配"
                 )
 
@@ -459,7 +462,7 @@ class PRAnalysisLangChain:
                 return json.dumps(result, ensure_ascii=False, indent=2)
 
             except Exception as e:
-                print(f"❌ Find 搜索失败: {pattern} - {str(e)}")
+                logger.error(f"❌ Find 搜索失败: {pattern} - {str(e)}")
                 return json.dumps(
                     {"success": False, "error": f"Find 搜索失败: {str(e)}"}
                 )
@@ -493,25 +496,25 @@ class PRAnalysisLangChain:
                 # 基本验证
                 cmd_stripped = command.strip()
                 if not cmd_stripped:
-                    print(f"❌ 命令为空")
+                    logger.error(f"❌ 命令为空")
                     return "错误: 命令为空"
 
                 # 检查是否以 git 开头
                 if not cmd_stripped.lower().startswith("git "):
-                    print(f"❌ 只允许 git 命令, 当前命令 {cmd_stripped}")
+                    logger.error(f"❌ 只允许 git 命令, 当前命令 {cmd_stripped}")
                     return "错误: 只允许 git 命令"
 
                 # 检查是否包含管道或重定向操作符
                 shell_operators = ["|", ">", ">>", "<", "&&", "||", ";"]
                 for operator in shell_operators:
                     if operator in cmd_stripped:
-                        print(f"❌ Git 命令不允许包含 shell 操作符 '{operator}'")
+                        logger.error(f"❌ Git 命令不允许包含 shell 操作符 '{operator}'")
                         return f"错误: Git 命令不允许包含 shell 操作符 '{operator}'。请使用纯 git 命令。"
 
                 # 解析 git 命令
                 cmd_parts = cmd_stripped.split()
                 if len(cmd_parts) < 2:
-                    print(f"❌ Git 命令不完整")
+                    logger.error(f"❌ Git 命令不完整")
                     return "错误: Git 命令不完整"
 
                 git_subcmd = cmd_parts[1].lower()
@@ -544,12 +547,12 @@ class PRAnalysisLangChain:
                 }
 
                 if git_subcmd in dangerous_git_commands:
-                    print(f"❌ 禁止执行危险的 git 命令: git {git_subcmd}")
+                    logger.error(f"❌ 禁止执行危险的 git 命令: git {git_subcmd}")
                     return f"错误: 禁止执行危险的 git 命令: git {git_subcmd}"
 
                 if git_subcmd not in safe_git_commands:
                     allowed_list = ", ".join(sorted(safe_git_commands))
-                    print(f"❌ Git 命令 '{git_subcmd}' 不在允许列表中")
+                    logger.error(f"❌ Git 命令 '{git_subcmd}' 不在允许列表中")
                     return f"错误: Git 命令 '{git_subcmd}' 不在允许列表中（允许: {allowed_list}）"
 
                 # 额外的安全检查：防止命令注入
@@ -566,7 +569,7 @@ class PRAnalysisLangChain:
                 cmd_lower = cmd_stripped.lower()
                 for pattern in dangerous_patterns:
                     if pattern in cmd_lower:
-                        print(f"❌ 检测到危险模式: {pattern}")
+                        logger.error(f"❌ 检测到危险模式: {pattern}")
                         return f"错误: 检测到危险模式: {pattern}"
 
                 # 使用 shell=False 执行命令（禁用管道、重定向等）
@@ -586,18 +589,18 @@ class PRAnalysisLangChain:
 
                 # 控制台显示执行结果
                 if result.returncode == 0:
-                    print(f"✅ Git 命令执行成功: {cmd_stripped}")
+                    logger.info(f"✅ Git 命令执行成功: {cmd_stripped}")
                     # 只显示输出的前几行（避免刷屏）
                     output_lines = output.strip().split("\n")
                     if len(output_lines) > 5:
                         preview = "\n".join(output_lines[:5])
-                        print(
+                        logger.info(
                             f"   输出预览 (前5行):\n{preview}\n   ... (共 {len(output_lines)} 行)"
                         )
                     else:
-                        print(f"   输出:\n{output.strip()}")
+                        logger.info(f"   输出:\n{output.strip()}")
                 else:
-                    print(
+                    logger.error(
                         f"❌ Git 命令执行失败 (退出码: {result.returncode}): {cmd_stripped}"
                     )
 
@@ -609,10 +612,10 @@ class PRAnalysisLangChain:
                 )
 
             except subprocess.TimeoutExpired:
-                print(f"❌ 命令执行超时（30秒）: {command}")
+                logger.error(f"❌ 命令执行超时（30秒）: {command}")
                 return "错误: 命令执行超时（30秒）"
             except Exception as e:
-                print(f"❌ 命令执行失败: {command} - {str(e)}")
+                logger.error(f"❌ 命令执行失败: {command} - {str(e)}")
                 return f"错误: 命令执行失败: {str(e)}"
 
         return StructuredTool.from_function(
@@ -676,17 +679,19 @@ class PRAnalysisLangChain:
 
         pr_number = target_pr["number"]
         pr_title = target_pr["title"]
-        print(f"🔍 正在分析 PR #{pr_number}: {pr_title}")
+        logger.info(f"🔍 正在分析 PR #{pr_number}: {pr_title}")
 
         try:
             # 获取 diff 内容
             diff_content = target_pr.get("diff_content", "")
             diff_size = len(diff_content) if diff_content else 0
-            print(f"📦 Diff 大小: {diff_size:,} 字符 (~{diff_size // 4:,} tokens)")
+            logger.info(
+                f"📦 Diff 大小: {diff_size:,} 字符 (~{diff_size // 4:,} tokens)"
+            )
 
             # 构建分析提示（使用 pr_analysis_common 中的函数）
             analysis_prompt = build_analysis_query(target_pr, diff_content)
-            print(f"📊 完整查询大小: {len(analysis_prompt):,} 字符")
+            logger.info(f"📊 完整查询大小: {len(analysis_prompt):,} 字符")
 
             # 构建系统提示（使用公共函数）
             system_prompt = (
@@ -695,11 +700,11 @@ class PRAnalysisLangChain:
                 else "您是一名时序数据库IoTDB专家，请根据提供的PR信息和本地iotdb源码进行分析，然后提供详细的分析结果。"
             )
 
-            print(f"🚀 正在使用 LangChain Agent 进行分析...")
-            print(
+            logger.info(f"🚀 正在使用 LangChain Agent 进行分析...")
+            logger.info(
                 f"   工具支持: {'启用 (read, glob, grep, git)' if enable_tools else '禁用'}"
             )
-            print("\n=== Claude 分析结果 ===\n")
+            logger.info("\n=== Claude 分析结果 ===")
 
             # 创建 Agent 提示模板
             prompt = ChatPromptTemplate.from_messages(
@@ -747,7 +752,7 @@ class PRAnalysisLangChain:
             else:
                 analysis_result = str(analyze_output)
 
-            print(f"\n=== 分析完成 ===\n")
+            logger.info(f"\n=== 分析完成 ===")
 
             return {
                 "success": True,
@@ -759,7 +764,7 @@ class PRAnalysisLangChain:
 
         except Exception as e:
             error_msg = f"分析过程出错: {str(e)}"
-            print(f"❌ {error_msg}")
+            logger.error(f"❌ {error_msg}")
             import traceback
 
             traceback.print_exc()
@@ -784,36 +789,36 @@ async def main():
 
     # 初始化分析器
     try:
-        print("🚀 IoTDB PR 分析工具 (LongChain)")
-        print("=" * 60)
+        logger.info("🚀 IoTDB PR 分析工具 (LongChain)")
+        logger.info("=" * 60)
 
         # 获取 PR 编号
         pr_number = 12879
 
-        print("\n" + "=" * 60)
-        print("🚀 开始PR分析 (使用 LongChain + 工具调用)...")
+        logger.info("\n" + "=" * 60)
+        logger.info("🚀 开始PR分析 (使用 LongChain + 工具调用)...")
 
         result = await analyzer.analyze_pr(pr_number=pr_number, enable_tools=True)
 
         # 打印结果
-        print(f"\n{'='*80}")
+        logger.info(f"\n{'='*80}")
         if result["success"]:
-            print(f"✅ 分析完成于: {result['analyzed_at']}")
-            print(f"PR #{result['pr_number']}: {result['pr_title']}")
-            print(f"\n📋 分析结果:")
-            print(f"{'-'*60}")
-            print(result["analysis"])
+            logger.info(f"✅ 分析完成于: {result['analyzed_at']}")
+            logger.info(f"PR #{result['pr_number']}: {result['pr_title']}")
+            logger.info(f"\n📋 分析结果:")
+            logger.info(f"{'-'*60}")
+            logger.info(result["analysis"])
         else:
-            print(f"❌ 分析失败: {result['error']}")
-        print(f"\n{'='*80}")
+            logger.error(f"❌ 分析失败: {result['error']}")
+        logger.info(f"\n{'='*80}")
 
         return 0 if result["success"] else 1
 
     except KeyboardInterrupt:
-        print("\n⏹️ 用户中断操作")
+        logger.info("\n⏹️ 用户中断操作")
         return 1
     except Exception as e:
-        print(f"\n❌ 执行过程中出现错误: {e}")
+        logger.error(f"\n❌ 执行过程中出现错误: {e}")
         import traceback
 
         traceback.print_exc()

@@ -1,6 +1,9 @@
 import mysql.connector
 from mysql.connector import Error
 from config import DEFAULT_DB_CONFIG
+from logger_config import setup_logger
+
+logger = setup_logger(__name__)
 
 
 def setup_database():
@@ -22,16 +25,16 @@ def setup_database():
             # Create database
             database_name = DEFAULT_DB_CONFIG["database"]
             cursor.execute(f"CREATE DATABASE IF NOT EXISTS {database_name}")
-            print(f"Database '{database_name}' created or already exists")
+            logger.info(f"Database '{database_name}' created or already exists")
 
             # Grant privileges (optional - if needed)
             # cursor.execute(f"GRANT ALL PRIVILEGES ON {database_name}.* TO '{DEFAULT_DB_CONFIG['user']}'@'{DEFAULT_DB_CONFIG['host']}'")
             # cursor.execute("FLUSH PRIVILEGES")
 
-            print("Database setup completed")
+            logger.info("Database setup completed")
 
     except Error as e:
-        print(f"Error setting up database: {e}")
+        logger.error(f"Error setting up database: {e}")
     finally:
         if connection and connection.is_connected():
             cursor.close()

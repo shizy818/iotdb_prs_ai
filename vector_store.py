@@ -12,6 +12,9 @@ from datetime import datetime
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
 from langchain.schema import Document
+from logger_config import setup_logger
+
+logger = setup_logger(__name__)
 
 
 class VectorStoreManager:
@@ -30,7 +33,7 @@ class VectorStoreManager:
         os.makedirs(persist_directory, exist_ok=True)
 
         # 初始化embedding模型 - 使用轻量级的中文模型
-        print("正在加载embedding模型...")
+        logger.info("正在加载embedding模型...")
         # 获取项目根目录（vector_store.py所在目录）
         project_root = Path(__file__).parent
         model_path = project_root / "models" / "paraphrase-multilingual-MiniLM-L12-v2"
@@ -53,7 +56,7 @@ class VectorStoreManager:
             collection_name="pr_analysis",
         )
 
-        print(f"向量数据库已初始化: {persist_directory}")
+        logger.info(f"向量数据库已初始化: {persist_directory}")
 
     def pr_exists(self, pr_number: int) -> bool:
         """
@@ -71,7 +74,7 @@ class VectorStoreManager:
             # 如果有结果，说明PR已存在
             return len(results.get("ids", [])) > 0
         except Exception as e:
-            print(f"⚠️  检查PR是否存在时出错: {e}")
+            logger.warning(f"检查PR是否存在时出错: {e}")
             return False
 
     def add_pr_analysis(
@@ -98,7 +101,7 @@ class VectorStoreManager:
         try:
             # 检查PR是否已存在
             if skip_if_exists and self.pr_exists(pr_number):
-                print(f"ℹ️  PR #{pr_number} 已存在于向量数据库中，跳过添加")
+                logger.info(f"PR #{pr_number} 已存在于向量数据库中，跳过添加")
                 return False
 
             # 准备文档元数据
@@ -121,12 +124,12 @@ class VectorStoreManager:
 
             # 添加到向量数据库
             self.vectorstore.add_documents([doc])
-            print(f"✅ PR #{pr_number} 分析结果已添加到向量数据库")
+            logger.info(f"PR #{pr_number} 分析结果已添加到向量数据库")
 
             return True
 
         except Exception as e:
-            print(f"❌ 添加PR分析到向量数据库失败: {e}")
+            logger.error(f"添加PR分析到向量数据库失败: {e}")
             return False
 
     def search_similar_prs(
@@ -167,7 +170,7 @@ class VectorStoreManager:
             return formatted_results
 
         except Exception as e:
-            print(f"❌ 搜索失败: {e}")
+            logger.error(f"搜索失败: {e}")
             return []
 
     def search_with_score(
@@ -195,7 +198,7 @@ class VectorStoreManager:
             return results
 
         except Exception as e:
-            print(f"❌ 搜索失败: {e}")
+            logger.error(f"搜索失败: {e}")
             return []
 
     def get_pr_by_number(self, pr_number: int) -> Optional[Dict]:
@@ -236,7 +239,7 @@ class VectorStoreManager:
             }
 
         except Exception as e:
-            print(f"❌ 获取PR #{pr_number}失败: {e}")
+            logger.error(f"获取PR #{pr_number}失败: {e}")
             return None
 
     def delete_pr_analysis(self, pr_number: int) -> bool:
@@ -252,11 +255,11 @@ class VectorStoreManager:
         try:
             # 使用元数据过滤删除
             self.vectorstore.delete(where={"pr_number": pr_number})
-            print(f"✅ PR #{pr_number} 的分析结果已从向量数据库删除")
+            logger.info(f"PR #{pr_number} 的分析结果已从向量数据库删除")
             return True
 
         except Exception as e:
-            print(f"❌ 删除失败: {e}")
+            logger.error(f"删除失败: {e}")
             return False
 
     def get_collection_stats(self) -> Dict:
@@ -277,7 +280,7 @@ class VectorStoreManager:
             }
 
         except Exception as e:
-            print(f"❌ 获取统计信息失败: {e}")
+            logger.error(f"获取统计信息失败: {e}")
             return {}
 
 
@@ -303,10 +306,10 @@ if __name__ == "__main__":
 
     # 搜索示例
     results = vector_store.search_similar_prs("JDBC配置问题", k=3)
-    print("\n搜索结果:")
+    logger.info("\n🔍 搜索结果:")
     for result in results:
-        print(f"PR #{result['pr_number']}: {result['pr_title']}")
+        logger.info(f"PR #{result['pr_number']}: {result['pr_title']}")
 
     # 获取统计信息
     stats = vector_store.get_collection_stats()
-    print(f"\n数据库统计: {stats}")
+    logger.info(f"\n📊 数据库统计: {stats}")

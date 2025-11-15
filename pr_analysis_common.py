@@ -3,6 +3,9 @@ from typing import Dict, Optional
 from pathlib import Path
 
 from database import DatabaseManager
+from logger_config import setup_logger
+
+logger = setup_logger(__name__)
 
 
 def get_tool_system_prompt() -> str:
@@ -195,7 +198,7 @@ def get_pr_by_number(
         return pr
 
     except Exception as e:
-        print(f"从数据库获取PR数据时出错: {e}")
+        logger.error(f"从数据库获取PR数据时出错: {e}")
         if should_close:
             db.close()
         return None

@@ -8,6 +8,9 @@ import argparse
 import sys
 from typing import List, Dict
 from vector_store import VectorStoreManager
+from logger_config import setup_logger
+
+logger = setup_logger(__name__)
 
 
 def format_search_result(result: Dict, index: int, show_full: bool = False) -> str:
@@ -83,43 +86,43 @@ def format_search_result_with_score(
 
 def search_command(args):
     """执行搜索命令"""
-    print(f"\n🔍 搜索查询: {args.query}")
-    print(f"📊 返回结果数: {args.top_k}")
+    logger.info(f"\n🔍 搜索查询: {args.query}")
+    logger.info(f"📊 返回结果数: {args.top_k}")
 
     # 初始化向量数据库
     vector_store = VectorStoreManager()
 
     # 获取统计信息
     stats = vector_store.get_collection_stats()
-    print(f"📚 数据库包含 {stats.get('total_documents', 0)} 个文档")
+    logger.info(f"📚 数据库包含 {stats.get('total_documents', 0)} 个文档")
 
     # 执行搜索
     if args.with_score:
-        print("\n正在执行语义搜索（带相似度分数）...")
+        logger.info("\n🔍 正在执行语义搜索（带相似度分数）...")
         results = vector_store.search_with_score(args.query, k=args.top_k)
 
         if results:
-            print(f"\n找到 {len(results)} 个相关结果:")
+            logger.info(f"\n找到 {len(results)} 个相关结果:")
             for idx, (doc, score) in enumerate(results, 1):
-                print(format_search_result_with_score(doc, score, idx, args.full))
+                logger.info(format_search_result_with_score(doc, score, idx, args.full))
         else:
-            print("\n未找到相关结果")
+            logger.info("\n未找到相关结果")
     else:
-        print("\n正在执行语义搜索...")
+        logger.info("\n🔍 正在执行语义搜索...")
         results = vector_store.search_similar_prs(args.query, k=args.top_k)
 
         if results:
-            print(f"\n找到 {len(results)} 个相关结果:")
+            logger.info(f"\n找到 {len(results)} 个相关结果:")
             for idx, result in enumerate(results, 1):
-                print(format_search_result(result, idx, args.full))
+                logger.info(format_search_result(result, idx, args.full))
         else:
-            print("\n未找到相关结果")
+            logger.info("\n未找到相关结果")
 
 
 def fetch_command(args):
     """根据PR编号获取分析结果"""
     pr_number = args.pr_number
-    print(f"\n🔍 获取PR #{pr_number}的分析结果...")
+    logger.info(f"\n🔍 获取PR #{pr_number}的分析结果...")
 
     # 初始化向量数据库
     vector_store = VectorStoreManager()
@@ -128,37 +131,37 @@ def fetch_command(args):
     result = vector_store.get_pr_by_number(pr_number)
 
     if not result:
-        print(f"\n❌ 未找到PR #{pr_number}的分析结果")
-        print("💡 提示: 该PR可能尚未被分析，请先使用analyze_pr.py进行分析")
+        logger.warning(f"\n❌ 未找到PR #{pr_number}的分析结果")
+        logger.info("💡 提示: 该PR可能尚未被分析，请先使用analyze_pr.py进行分析")
         return
 
-    print(f"\n✅ 找到PR #{pr_number}的分析结果")
-    print("=" * 80)
-    print(f"PR编号: #{result['pr_number']}")
-    print(f"PR标题: {result['pr_title']}")
+    logger.info(f"\n✅ 找到PR #{pr_number}的分析结果")
+    logger.info("=" * 80)
+    logger.info(f"PR编号: #{result['pr_number']}")
+    logger.info(f"PR标题: {result['pr_title']}")
 
     metadata = result.get("metadata", {})
     if metadata.get("analyzed_at"):
-        print(f"分析时间: {metadata['analyzed_at']}")
+        logger.info(f"分析时间: {metadata['analyzed_at']}")
 
-    print("=" * 80)
-    print("\n分析内容:\n")
-    print(result["content"])
-    print("\n" + "=" * 80)
+    logger.info("=" * 80)
+    logger.info("\n分析内容:\n")
+    logger.info(result["content"])
+    logger.info("\n" + "=" * 80)
 
 
 def stats_command(args):
     """显示统计信息"""
-    print("\n📊 向量数据库统计信息")
-    print("=" * 80)
+    logger.info("\n📊 向量数据库统计信息")
+    logger.info("=" * 80)
 
     vector_store = VectorStoreManager()
     stats = vector_store.get_collection_stats()
 
-    print(f"集合名称: {stats.get('collection_name', 'N/A')}")
-    print(f"总文档数: {stats.get('total_documents', 0)}")
-    print(f"存储路径: {stats.get('persist_directory', 'N/A')}")
-    print("=" * 80)
+    logger.info(f"集合名称: {stats.get('collection_name', 'N/A')}")
+    logger.info(f"总文档数: {stats.get('total_documents', 0)}")
+    logger.info(f"存储路径: {stats.get('persist_directory', 'N/A')}")
+    logger.info("=" * 80)
 
 
 def main():
@@ -225,10 +228,10 @@ def main():
         return 0
 
     except KeyboardInterrupt:
-        print("\n⏹️ 用户中断操作")
+        logger.info("\n⏹️ 用户中断操作")
         return 1
     except Exception as e:
-        print(f"\n❌ 错误: {e}")
+        logger.error(f"\n❌ 错误: {e}")
         import traceback
 
         traceback.print_exc()

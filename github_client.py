@@ -4,6 +4,9 @@ from datetime import datetime, timedelta
 import re
 from urllib.parse import urlparse
 import os
+from logger_config import setup_logger
+
+logger = setup_logger(__name__)
 
 
 class GitHubClient:
@@ -160,14 +163,14 @@ class GitHubClient:
                 )
 
                 if response.status_code != 200:
-                    print(f"GraphQL API error: HTTP {response.status_code}")
+                    logger.error(f"GraphQL API error: HTTP {response.status_code}")
                     return []
 
                 result = response.json()
 
                 # Check for errors
                 if "errors" in result:
-                    print(f"GraphQL error: {result['errors']}")
+                    logger.error(f"GraphQL error: {result['errors']}")
                     return []
 
                 # Extract PR data
@@ -187,10 +190,10 @@ class GitHubClient:
                 cursor = page_info["endCursor"]
 
             except requests.exceptions.RequestException as e:
-                print(f"Network error: {str(e)}")
+                logger.error(f"Network error: {str(e)}")
                 return []
             except Exception as e:
-                print(f"Error processing GraphQL response: {str(e)}")
+                logger.error(f"Error processing GraphQL response: {str(e)}")
                 return []
 
         return prs
@@ -364,7 +367,7 @@ class GitHubClient:
                         "data": response.content,
                     }
         except Exception as e:
-            print(f"Error downloading image {image_url}: {e}")
+            logger.error(f"Error downloading image {image_url}: {e}")
 
         return None
 

@@ -18,6 +18,9 @@ from pr_analysis_langchain import PRAnalysisLangChain
 from pr_analysis_anthropic import PRAnalysisAnthropic
 from vector_store import VectorStoreManager
 from database import DatabaseManager
+from logger_config import setup_logger
+
+logger = setup_logger(__name__)
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -49,7 +52,7 @@ class PRAnalysisRunnable:
         self.check_exists = check_exists
         self.vector_store = vector_store
 
-        print(f"🔧 初始化 PR 分析器 (框架: {framework})...")
+        logger.info(f"🔧 初始化 PR 分析器 (框架: {framework})...")
 
         # 根据框架类型创建对应的 analyzer
         if framework == "langchain":
@@ -59,7 +62,7 @@ class PRAnalysisRunnable:
         else:
             raise ValueError(f"不支持的框架: {framework}")
 
-        print(f"✅ 分析器初始化完成\n")
+        logger.info(f"✅ 分析器初始化完成")
 
     def __call__(self, inputs: Dict) -> Dict:
         """执行 PR 分析（同步调用）"""
@@ -67,9 +70,9 @@ class PRAnalysisRunnable:
 
         # 如果启用了检查且向量数据库可用，先检查 PR 是否存在
         if self.check_exists and self.vector_store and pr_number:
-            print(f"\n🔍 检查 PR #{pr_number} 是否已在向量数据库中...")
+            logger.info(f"🔍 检查 PR #{pr_number} 是否已在向量数据库中...")
             if self.vector_store.pr_exists(pr_number):
-                print(f"✅ PR #{pr_number} 已存在于向量数据库，跳过分析\n")
+                logger.info(f"✅ PR #{pr_number} 已存在于向量数据库，跳过分析")
                 return {
                     "success": True,
                     "pr_number": pr_number,
@@ -80,11 +83,11 @@ class PRAnalysisRunnable:
                     "skip_reason": "already_in_vector_db",
                 }
             else:
-                print(f"✅ PR #{pr_number} 不存在，继续分析\n")
+                logger.info(f"✅ PR #{pr_number} 不存在，继续分析")
 
-        print(f"\n🔍 步骤 1: 分析 PR #{pr_number if pr_number else '(最新)'}...")
-        print(f"   使用框架: {self.framework}")
-        print(f"   工具调用: {'启用' if self.enable_tools else '禁用'}\n")
+        logger.info(f"🔍 步骤 1: 分析 PR #{pr_number if pr_number else '(最新)'}...")
+        logger.info(f"   使用框架: {self.framework}")
+        logger.info(f"   工具调用: {'启用' if self.enable_tools else '禁用'}")
 
         # 对于异步的 analyzer，需要在事件循环中运行
         result = asyncio.run(
@@ -94,9 +97,9 @@ class PRAnalysisRunnable:
         )
 
         if result.get("success"):
-            print(f"✅ PR 分析完成\n")
+            logger.info(f"✅ PR 分析完成")
         else:
-            print(f"❌ PR 分析失败: {result.get('error')}\n")
+            logger.error(f"❌ PR 分析失败: {result.get('error')}")
 
         result["skipped"] = False
         return result
@@ -117,14 +120,14 @@ class VectorStoreRunnable:
         Args:
             vector_store: 向量数据库实例（可选）
         """
-        print("🔧 初始化向量数据库存储器...")
+        logger.info("🔧 初始化向量数据库存储器...")
         self.vector_store = vector_store
         self.enabled = vector_store is not None
 
         if self.enabled:
-            print("✅ 向量数据库存储已启用\n")
+            logger.info("✅ 向量数据库存储已启用")
         else:
-            print("⚠️ 向量数据库未提供，将跳过存储步骤\n")
+            logger.warning("⚠️ 向量数据库未提供，将跳过存储步骤")
 
     def __call__(self, analysis_result: Dict) -> Dict:
         """保存分析结果到向量数据库"""
@@ -137,7 +140,7 @@ class VectorStoreRunnable:
             analysis_result["vector_stored"] = False
             return analysis_result
 
-        print(f"💾 步骤 2: 保存到向量数据库...")
+        logger.info(f"💾 步骤 2: 保存到向量数据库...")
 
         try:
             pr_number = analysis_result["pr_number"]
@@ -153,7 +156,7 @@ class VectorStoreRunnable:
 
             # 检查是否已存在
             if self.vector_store.pr_exists(pr_number):
-                print(f"⚠️ PR #{pr_number} 已存在，更新记录...")
+                logger.warning(f"⚠️ PR #{pr_number} 已存在，更新记录...")
                 self.vector_store.delete_pr_analysis(pr_number)
 
             # 添加到向量数据库
@@ -167,12 +170,12 @@ class VectorStoreRunnable:
             analysis_result["vector_stored"] = success
 
             if success:
-                print(f"✅ 已保存到向量数据库\n")
+                logger.info(f"✅ 已保存到向量数据库")
             else:
-                print(f"⚠️ 向量数据库保存失败\n")
+                logger.warning(f"⚠️ 向量数据库保存失败")
 
         except Exception as e:
-            print(f"❌ 向量数据库存储失败: {e}\n")
+            logger.error(f"❌ 向量数据库存储失败: {e}")
             import traceback
 
             traceback.print_exc()
@@ -212,27 +215,25 @@ def create_pr_analysis_chain(
         chain = create_pr_analysis_chain(framework='claude_agent_sdk')
         result = chain.invoke({"pr_number": 15685})
     """
-    print("🔧 创建 PR 分析 Chain...")
-    print(f"   框架: {framework}")
-    print(f"   工具调用: {'启用' if enable_tools else '禁用'}")
-    print(f"   向量存储: {'启用' if save_to_vector else '禁用'}")
-    print(f"   检查存在: {'启用' if check_exists else '禁用'}")
-    print()
+    logger.info("🔧 创建 PR 分析 Chain...")
+    logger.info(f"   框架: {framework}")
+    logger.info(f"   工具调用: {'启用' if enable_tools else '禁用'}")
+    logger.info(f"   向量存储: {'启用' if save_to_vector else '禁用'}")
+    logger.info(f"   检查存在: {'启用' if check_exists else '禁用'}")
 
     # 统一初始化向量数据库（如果需要）
     vector_store = None
     if save_to_vector or check_exists:
-        print("🔧 初始化向量数据库...")
+        logger.info("🔧 初始化向量数据库...")
         try:
             vector_store = VectorStoreManager()
-            print("✅ 向量数据库初始化成功\n")
+            logger.info("✅ 向量数据库初始化成功")
         except Exception as e:
-            print(f"⚠️ 向量数据库初始化失败: {e}")
+            logger.error(f"⚠️ 向量数据库初始化失败: {e}")
             if save_to_vector:
-                print("⚠️ 将跳过向量数据库存储步骤")
+                logger.warning("⚠️ 将跳过向量数据库存储步骤")
             if check_exists:
-                print("⚠️ 将不检查 PR 是否已存在")
-            print()
+                logger.warning("⚠️ 将不检查 PR 是否已存在")
             vector_store = None
 
     # 创建 PR 分析 Runnable
@@ -294,9 +295,9 @@ def run_pr_analysis(
         # 只分析，不保存到向量数据库
         result = run_pr_analysis(pr_number=15685, save_to_vector=False)
     """
-    print(f"\n{'='*80}")
-    print(f"🚀 启动 PR 分析工作流")
-    print(f"{'='*80}\n")
+    logger.info(f"\n{'='*80}")
+    logger.info(f"🚀 启动 PR 分析工作流")
+    logger.info(f"{'='*80}")
 
     # 创建 Chain
     chain = create_pr_analysis_chain(
@@ -309,9 +310,9 @@ def run_pr_analysis(
     # 运行 Chain
     result = chain.invoke({"pr_number": pr_number})
 
-    print(f"{'='*80}")
-    print(f"🎉 工作流完成")
-    print(f"{'='*80}\n")
+    logger.info(f"{'='*80}")
+    logger.info(f"🎉 工作流完成")
+    logger.info(f"{'='*80}")
 
     return result
 
@@ -342,8 +343,8 @@ def get_prs_by_date_range(
         # 从数据库查询, [start_date, end_date)
         pr_numbers = db.get_merged_prs_in_range(start_date, end_date)
 
-        print(f"📅 日期范围: {start_date} 到 {end_date}")
-        print(f"📊 找到 {len(pr_numbers)} 个已合并的 PR\n")
+        logger.info(f"📅 日期范围: {start_date} 到 {end_date}")
+        logger.info(f"📊 找到 {len(pr_numbers)} 个已合并的 PR")
 
         return pr_numbers
 
@@ -371,9 +372,9 @@ def batch_analyze_prs(
     Returns:
         包含成功和失败统计的结果字典
     """
-    print(f"\n{'='*80}")
-    print(f"🚀 批量分析 {len(pr_numbers)} 个 PR")
-    print(f"{'='*80}\n")
+    logger.info(f"\n{'='*80}")
+    logger.info(f"🚀 批量分析 {len(pr_numbers)} 个 PR")
+    logger.info(f"{'='*80}")
 
     results = {
         "total": len(pr_numbers),
@@ -385,12 +386,11 @@ def batch_analyze_prs(
     }
 
     # 创建一个 Chain 对象，复用于所有 PR
-    print(f"🔧 创建 PR 分析 Chain...")
-    print(f"   框架: {framework}")
-    print(f"   工具调用: {'启用' if enable_tools else '禁用'}")
-    print(f"   向量存储: {'启用' if save_to_vector else '禁用'}")
-    print(f"   检查存在: {'启用' if check_exists else '禁用'}")
-    print()
+    logger.info(f"🔧 创建 PR 分析 Chain...")
+    logger.info(f"   框架: {framework}")
+    logger.info(f"   工具调用: {'启用' if enable_tools else '禁用'}")
+    logger.info(f"   向量存储: {'启用' if save_to_vector else '禁用'}")
+    logger.info(f"   检查存在: {'启用' if check_exists else '禁用'}")
 
     chain = create_pr_analysis_chain(
         framework=framework,
@@ -400,9 +400,9 @@ def batch_analyze_prs(
     )
 
     for i, pr_number in enumerate(pr_numbers, 1):
-        print(f"\n{'='*80}")
-        print(f"进度: {i}/{len(pr_numbers)} - PR #{pr_number}")
-        print(f"{'='*80}\n")
+        logger.info(f"\n{'='*80}")
+        logger.info(f"进度: {i}/{len(pr_numbers)} - PR #{pr_number}")
+        logger.info(f"{'='*80}")
 
         try:
             # 使用复用的 chain 对象
@@ -411,32 +411,32 @@ def batch_analyze_prs(
             if result.get("skipped"):
                 results["skipped"] += 1
                 results["skipped_prs"].append(pr_number)
-                print(f"⏭️ PR #{pr_number} 已跳过\n")
+                logger.info(f"⏭️ PR #{pr_number} 已跳过")
             elif result.get("success"):
                 results["success"] += 1
-                print(f"✅ PR #{pr_number} 分析成功\n")
+                logger.info(f"✅ PR #{pr_number} 分析成功")
             else:
                 results["failed"] += 1
                 results["failed_prs"].append(pr_number)
-                print(f"❌ PR #{pr_number} 分析失败\n")
+                logger.error(f"❌ PR #{pr_number} 分析失败")
 
         except Exception as e:
             results["failed"] += 1
             results["failed_prs"].append(pr_number)
-            print(f"❌ PR #{pr_number} 处理异常: {e}\n")
+            logger.error(f"❌ PR #{pr_number} 处理异常: {e}")
 
-    print(f"\n{'='*80}")
-    print(f"📊 批量分析完成")
-    print(f"{'='*80}")
-    print(f"总计: {results['total']}")
-    print(f"成功: {results['success']}")
-    print(f"跳过: {results['skipped']}")
-    print(f"失败: {results['failed']}")
+    logger.info(f"\n{'='*80}")
+    logger.info(f"📊 批量分析完成")
+    logger.info(f"{'='*80}")
+    logger.info(f"总计: {results['total']}")
+    logger.info(f"成功: {results['success']}")
+    logger.info(f"跳过: {results['skipped']}")
+    logger.info(f"失败: {results['failed']}")
     if results["skipped_prs"]:
-        print(f"跳过的PR: {results['skipped_prs']}")
+        logger.info(f"跳过的PR: {results['skipped_prs']}")
     if results["failed_prs"]:
-        print(f"失败的PR: {results['failed_prs']}")
-    print(f"{'='*80}\n")
+        logger.warning(f"失败的PR: {results['failed_prs']}")
+    logger.info(f"{'='*80}")
 
     return results
 
@@ -495,11 +495,10 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    print("🚀 PR 分析 + 向量数据库存储工具")
-    print("使用 LangChain LCEL: analyze | vector_store")
-    print("支持多种框架: langchain, claude_agent_sdk, anthropic")
-    print("=" * 80)
-    print()
+    logger.info("🚀 PR 分析 + 向量数据库存储工具")
+    logger.info("使用 LangChain LCEL: analyze | vector_store")
+    logger.info("支持多种框架: langchain, claude_agent_sdk, anthropic")
+    logger.info("=" * 80)
 
     enable_tools = not args.no_tools
     save_to_vector = not args.no_vector
@@ -509,7 +508,7 @@ if __name__ == "__main__":
     if args.pr_number:
         # 单个 PR 模式
         if args.since_date:
-            print("❌ 错误: --pr_number 不能与 --since_date 同时使用")
+            logger.error("❌ 错误: --pr_number 不能与 --since_date 同时使用")
             exit(1)
 
         result = run_pr_analysis(
@@ -521,18 +520,18 @@ if __name__ == "__main__":
         )
 
         # 打印结果摘要
-        print(f"\n📋 结果摘要:")
-        print(f"  PR 编号: {result.get('pr_number')}")
-        print(f"  PR 标题: {result.get('pr_title')}")
-        print(f"  分析成功: {result.get('success')}")
-        print(f"  已跳过: {result.get('skipped', False)}")
-        print(f"  向量存储: {result.get('vector_stored', False)}")
+        logger.info(f"\n📋 结果摘要:")
+        logger.info(f"  PR 编号: {result.get('pr_number')}")
+        logger.info(f"  PR 标题: {result.get('pr_title')}")
+        logger.info(f"  分析成功: {result.get('success')}")
+        logger.info(f"  已跳过: {result.get('skipped', False)}")
+        logger.info(f"  向量存储: {result.get('vector_stored', False)}")
 
         if result.get("success") and not result.get("skipped"):
-            print(f"\n📄 分析内容预览:")
+            logger.info(f"\n📄 分析内容预览:")
             analysis = result.get("analysis", "")
             preview = analysis[:500] + "..." if len(analysis) > 500 else analysis
-            print(preview)
+            logger.info(preview)
 
     elif args.since_date:
         # 批量处理模式
@@ -542,7 +541,7 @@ if __name__ == "__main__":
         )
 
         if not pr_numbers:
-            print("❌ 未找到符合条件的 PR")
+            logger.warning("❌ 未找到符合条件的 PR")
             exit(0)
 
         results = batch_analyze_prs(
@@ -554,6 +553,6 @@ if __name__ == "__main__":
         )
 
     else:
-        print("❌ 错误: 必须指定 --pr_number 或 --since_date")
+        logger.error("❌ 错误: 必须指定 --pr_number 或 --since_date")
         parser.print_help()
         exit(1)

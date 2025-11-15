@@ -7,6 +7,9 @@ from typing import Dict, Optional, List
 import anthropic
 from database import DatabaseManager
 from config import ANTHROPIC_BASE_URL, ANTHROPIC_API_KEY, DEFAULT_IOTDB_SOURCE_DIR
+from logger_config import setup_logger
+
+logger = setup_logger(__name__)
 
 from pr_analysis_common import (
     build_analysis_query,
@@ -385,7 +388,7 @@ class PRAnalysisAnthropic:
                 return {"success": False, "error": "数据库中没有找到PR数据"}
 
         pr_number = target_pr["number"]
-        print(f"🔍 正在分析 PR #{pr_number}: {target_pr['title']}")
+        logger.info(f"🔍 正在分析 PR #{pr_number}: {target_pr['title']}")
 
         try:
             # 初始化 Anthropic 客户端
@@ -396,12 +399,16 @@ class PRAnalysisAnthropic:
             # 获取 diff 内容
             diff_content = target_pr.get("diff_content", "")
             diff_size = len(diff_content) if diff_content else 0
-            print(f"📦 Diff 大小: {diff_size:,} 字符 (~{diff_size // 4:,} tokens)")
+            logger.info(
+                f"📦 Diff 大小: {diff_size:,} 字符 (~{diff_size // 4:,} tokens)"
+            )
 
             # 构建完整查询
             query = build_analysis_query(target_pr, diff_content)
             query_size = len(query)
-            print(f"📊 完整查询大小: {query_size:,} 字符 (~{query_size // 4:,} tokens)")
+            logger.info(
+                f"📊 完整查询大小: {query_size:,} 字符 (~{query_size // 4:,} tokens)"
+            )
 
             # 构建系统提示（使用公共函数）
             system_prompt = (
@@ -619,7 +626,7 @@ class PRAnalysisAnthropic:
 
         except Exception as e:
             error_msg = f"分析过程出错: {str(e)}"
-            print(f"❌ {error_msg}")
+            logger.error(f"❌ {error_msg}")
             import traceback
 
             traceback.print_exc()
@@ -674,7 +681,7 @@ async def main():
     except ValueError:
         print("\n❌ PR 编号必须是数字")
     except Exception as e:
-        print(f"\n❌ 执行过程中出现错误: {e}")
+        logger.error(f"\n❌ 执行过程中出现错误: {e}")
         import traceback
 
         traceback.print_exc()
