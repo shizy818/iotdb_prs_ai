@@ -19,3 +19,6 @@ scikit-learn~=1.7.2
 SQLAlchemy~=2.0.44
 anthropic~=0.71.0
 claude-agent-sdk>=0.1.4
+flask>=2.3.0
+flask-cors>=4.0.0
+prompt-toolkit>=3.0.0
