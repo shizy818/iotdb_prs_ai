@@ -77,18 +77,17 @@ python chat_web_interface.py --host 0.0.0.0 --port 9000
 
 ## 💡 使用示例
 
-### 命令行界面示例
+### 命令行启动
 ```bash
 # 启动CLI
 python chat_cli.py
-
-# 示例查询
-💬 您: iotdb1.3.2版本遇到内存泄漏问题，请列出最相关的5个PR
-🤖 助手: [基于搜索结果的相关PR推荐]
-
-💬 您: 我想了解JDBC连接相关的问题
-🤖 助手: [JDBC相关的PR分析结果]
 ```
+
+### PR搜索
+![智能搜索](search_pr.png)
+
+### PR查看
+![查看PR](fetch_pr.png)
 
 ### Web界面示例
 1. 启动Web服务器: `python chat_web_interface.py`
