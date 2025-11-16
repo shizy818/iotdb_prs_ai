@@ -416,7 +416,6 @@ class PRAnalysisAnthropic:
                 if enable_tools
                 else "您是一名时序数据库IoTDB专家，请根据提供的PR信息和本地iotdb源码进行分析，然后提供详细的分析结果。"
             )
-            print(system_prompt)
 
             print(f"🚀 正在使用 Anthropic API 发送分析请求...")
             print(f"   模型: GLM-4.6")

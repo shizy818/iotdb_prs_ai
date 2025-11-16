@@ -4,7 +4,7 @@
 将 PR 分析和向量数据库存储串联起来
 
 使用管道操作符: analyze_pr | save_to_vector_store
-支持多种框架: langchain, claude_agent_sdk, anthropic
+支持多种框架: langchain, anthropic
 """
 import os
 import asyncio
@@ -25,7 +25,7 @@ logger = setup_logger(__name__)
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 # 框架类型定义
-FrameworkType = Literal["langchain", "claude_agent_sdk", "anthropic"]
+FrameworkType = Literal["langchain", "anthropic"]
 
 
 class PRAnalysisRunnable:
@@ -42,7 +42,7 @@ class PRAnalysisRunnable:
         初始化 PR 分析器
 
         Args:
-            framework: 分析框架 ('langchain', 'claude_agent_sdk', 'anthropic')
+            framework: 分析框架 ('langchain', 'anthropic')
             enable_tools: 是否启用工具调用
             check_exists: 是否检查 PR 是否已存在于向量数据库
             vector_store: 向量数据库实例（可选，用于检查 PR 是否存在）
@@ -194,7 +194,7 @@ def create_pr_analysis_chain(
     创建 PR 分析 Chain（使用 LangChain LCEL 语法）
 
     Args:
-        framework: 分析框架 ('langchain', 'claude_agent_sdk', 'anthropic')
+        framework: 分析框架 ('langchain', 'anthropic')
         enable_tools: 是否启用工具调用（read, glob, grep）
         save_to_vector: 是否保存到向量数据库
         check_exists: 是否在分析前检查 PR 是否已存在于向量数据库
@@ -209,10 +209,6 @@ def create_pr_analysis_chain(
 
         # 使用 Anthropic API
         chain = create_pr_analysis_chain(framework='anthropic')
-        result = chain.invoke({"pr_number": 15685})
-
-        # 使用 Claude Agent SDK
-        chain = create_pr_analysis_chain(framework='claude_agent_sdk')
         result = chain.invoke({"pr_number": 15685})
     """
     logger.info("🔧 创建 PR 分析 Chain...")
@@ -274,7 +270,7 @@ def run_pr_analysis(
 
     Args:
         pr_number: PR 编号，如果为 None 则分析最新 PR
-        framework: 分析框架 ('langchain', 'claude_agent_sdk', 'anthropic')
+        framework: 分析框架 ('langchain', 'anthropic')
         enable_tools: 是否启用工具调用（read, glob, grep）
         save_to_vector: 是否保存到向量数据库
         check_exists: 是否在分析前检查 PR 是否已存在于向量数据库
@@ -289,8 +285,8 @@ def run_pr_analysis(
         # 使用 Anthropic API
         result = run_pr_analysis(pr_number=15685, framework='anthropic')
 
-        # 使用 Claude Agent SDK，不启用工具
-        result = run_pr_analysis(pr_number=15685, framework='claude_agent_sdk', enable_tools=False)
+        # 使用 Anthropic，不启用工具
+        result = run_pr_analysis(pr_number=15685, framework='anthropic', enable_tools=False)
 
         # 只分析，不保存到向量数据库
         result = run_pr_analysis(pr_number=15685, save_to_vector=False)
@@ -385,13 +381,7 @@ def batch_analyze_prs(
         "skipped_prs": [],
     }
 
-    # 创建一个 Chain 对象，复用于所有 PR
-    logger.info(f"🔧 创建 PR 分析 Chain...")
-    logger.info(f"   框架: {framework}")
-    logger.info(f"   工具调用: {'启用' if enable_tools else '禁用'}")
-    logger.info(f"   向量存储: {'启用' if save_to_vector else '禁用'}")
-    logger.info(f"   检查存在: {'启用' if check_exists else '禁用'}")
-
+    # 创建一个 Chain 对象
     chain = create_pr_analysis_chain(
         framework=framework,
         enable_tools=enable_tools,
@@ -497,7 +487,7 @@ if __name__ == "__main__":
 
     logger.info("🚀 PR 分析 + 向量数据库存储工具")
     logger.info("使用 LangChain LCEL: analyze | vector_store")
-    logger.info("支持多种框架: langchain, claude_agent_sdk, anthropic")
+    logger.info("支持多种框架: langchain, anthropic")
     logger.info("=" * 80)
 
     enable_tools = not args.no_tools

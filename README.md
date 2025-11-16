@@ -16,7 +16,7 @@ pip install -r requirements.txt
 git clone https://github.com/apache/iotdb.git
 ```
 
-**MySQL数据库配置**
+**MySQL数据库配置和初始化**
 ```bash
 # 安装MySQL数据库
 sudo apt-get install mysql-server  # Ubuntu/Debian
@@ -26,15 +26,22 @@ brew install mysql                  # macOS
 # 启动MySQL服务
 sudo systemctl start mysql  # Linux
 brew services start mysql  # macOS
+
+# 检查MySQL服务状态
+sudo systemctl status mysql  # Linux
+brew services list | grep mysql  # macOS
+
+# 初始化数据库（创建数据库和表结构）
+python setup_database.py
 ```
 
-**下载MiniLM模型**
+**下载HuggingFace模型**
 ```bash
 # 安装huggingface-cli
 pip install huggingface_hub
 
 # 使用CLI下载多语言MiniLM模型
-huggingface-cli download sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 --local-dir ./models/paraphrase-multilingual-MiniLM-L12-v2
+python -m huggingface-cli download sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 --local-dir ./models/paraphrase-multilingual-MiniLM-L12-v2
 ```
 
 ### 2. 数据准备
