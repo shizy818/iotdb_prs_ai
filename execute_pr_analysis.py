@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 IoTDB PR分析工具 - 统一入口
-支持多种框架：LangChain、Claude Agent SDK、Anthropic API
+支持多种框架：LangChain、Anthropic API
 """
 
 import asyncio
@@ -91,7 +91,6 @@ async def main():
 示例:
   %(prog)s --pr 15685                                    # 使用默认框架(langchain)分析PR
   %(prog)s --pr 15685 --frame anthropic                  # 使用Anthropic API分析PR
-  %(prog)s --pr 15685 --frame claude_agent_sdk           # 使用Claude Agent SDK分析PR
   %(prog)s --pr 15685 --output result.json               # 将结果保存到JSON文件
   %(prog)s --pr 15685 --frame langchain --no-tools       # 禁用工具调用
         """,
@@ -111,7 +110,7 @@ async def main():
         "--framework",
         dest="framework",
         type=str,
-        choices=["langchain", "claude_agent_sdk", "anthropic"],
+        choices=["langchain", "anthropic"],
         default="langchain",
         help="选择分析框架（默认: langchain）",
     )
@@ -145,10 +144,6 @@ async def main():
         # 根据选择的框架调用相应的分析函数
         if args.framework == "langchain":
             result = await analyze_with_langchain(
-                pr_number=args.pr_number, enable_tools=args.enable_tools
-            )
-        elif args.framework == "claude_agent_sdk":
-            result = await analyze_with_claude_agent_sdk(
                 pr_number=args.pr_number, enable_tools=args.enable_tools
             )
         elif args.framework == "anthropic":
