@@ -10,8 +10,9 @@ from flask import Flask, render_template_string, request, jsonify
 from flask_cors import CORS
 
 from chat_vector_tool import VectorDBTool
-from chat_message_handler import ChatMessageHandler
+from glm_chat_handler import GLMChatHandler
 from logger_config import setup_logger
+import os
 
 logger = setup_logger(__name__)
 
@@ -31,12 +32,12 @@ class ChatWebInterface:
 
         # 初始化聊天组件
         self.vector_tool = VectorDBTool(persist_directory)
-        self.message_handler = ChatMessageHandler(self.vector_tool)
+        self.message_handler = GLMChatHandler(self.vector_tool)
 
         # 注册路由
         self._register_routes()
 
-        logger.info("Web界面初始化完成")
+        logger.info("Web界面初始化完成（使用GLM-4.6模型）")
 
     def _register_routes(self):
         """注册Flask路由"""
@@ -233,20 +234,20 @@ class ChatWebInterface:
 <body>
     <div class="chat-container">
         <div class="chat-header">
-            🤖 IoTDB PR智能助手 - 基于向量数据库的智能对话系统
+            🤖 IoTDB PR智能助手 - 基于GLM-4.6的智能对话系统
         </div>
 
         <div class="chat-messages" id="chatMessages">
             <div class="help-panel">
                 <h3>💡 使用指南</h3>
                 <ul>
-                    <li><strong>搜索问题：</strong> "搜索JDBC配置问题"</li>
-                    <li><strong>查看PR：</strong> "pr 16487"</li>
-                    <li><strong>关键词搜索：</strong> "keywords Maven,构建,错误"</li>
-                    <li><strong>数据库统计：</strong> "stats"</li>
-                    <li><strong>查看帮助：</strong> "help"</li>
+                    <li><strong>自然提问：</strong> "iotdb1.3.2版本遇到内存泄漏问题，请列出最相关的5个PR"</li>
+                    <li><strong>技术问题：</strong> "我想了解JDBC连接相关的问题"</li>
+                    <li><strong>查看PR：</strong> "我想了解PR 16487的详细内容"</li>
+                    <li><strong>关键词搜索：</strong> "搜索包含性能优化和查询引擎的PR"</li>
+                    <li><strong>版本问题：</strong> "1.3.0版本有哪些重要的bug修复PR？"</li>
                 </ul>
-                <p>🎯 支持自然语言对话，您可以随时用任何方式提问！</p>
+                <p>🎯 现在支持与GLM-4.6模型直接对话，理解复杂的技术问题并提供精准的PR推荐！</p>
             </div>
         </div>
 
@@ -275,7 +276,7 @@ class ChatWebInterface:
         function addMessage(content, isUser = false) {
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${isUser ? 'user-message' : 'assistant-message'}`;
-            messageDiv.innerHTML = content.replace(/\n/g, '<br>');
+            messageDiv.innerHTML = content.replace(/\\n/g, '<br>');
             chatMessages.appendChild(messageDiv);
             scrollToBottom();
         }
@@ -291,7 +292,10 @@ class ChatWebInterface:
         // 发送消息
         async function sendMessage() {
             const message = messageInput.value.trim();
-            if (!message) return;
+            if (!message) {
+                console.log('消息为空，返回');
+                return;
+            }
 
             // 禁用输入和发送按钮
             messageInput.disabled = true;
@@ -347,7 +351,7 @@ class ChatWebInterface:
 </html>
         """
 
-    def run(self, host: str = "0.0.0.0", port: int = 5000, debug: bool = False):
+    def run(self, host: str = "0.0.0.0", port: int = 9000, debug: bool = False):
         """
         运行Web应用
 
@@ -369,7 +373,7 @@ def main():
         "--host", default="0.0.0.0", help="服务器主机地址 (默认: 0.0.0.0)"
     )
     parser.add_argument(
-        "--port", type=int, default=5000, help="服务器端口 (默认: 5000)"
+        "--port", type=int, default=9000, help="服务器端口 (默认: 9000)"
     )
     parser.add_argument("--debug", action="store_true", help="启用调试模式")
     parser.add_argument(

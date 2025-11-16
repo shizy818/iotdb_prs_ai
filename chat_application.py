@@ -7,7 +7,6 @@
 import sys
 import signal
 import argparse
-from pathlib import Path
 from typing import Optional
 
 try:
@@ -20,8 +19,13 @@ except ImportError:
     PROMPT_TOOLKIT_AVAILABLE = False
     print("⚠️  建议安装prompt_toolkit以获得更好的命令行体验: pip install prompt_toolkit")
 
+# 设置聊天模式环境变量，确保日志不干扰用户界面
+import os
+
+os.environ["CHAT_MODE"] = "true"
+
 from chat_vector_tool import VectorDBTool
-from chat_message_handler import ChatMessageHandler
+from glm_chat_handler import GLMChatHandler
 from logger_config import setup_logger
 
 logger = setup_logger(__name__)
@@ -41,7 +45,7 @@ class ChatApplication:
         self.persist_directory = persist_directory
         self.debug = debug
         self.vector_tool: Optional[VectorDBTool] = None
-        self.message_handler: Optional[ChatMessageHandler] = None
+        self.message_handler: Optional[GLMChatHandler] = None
         self.is_running = False
 
         # 设置prompt_toolkit支持（如果可用）
@@ -66,16 +70,11 @@ class ChatApplication:
             history_file = os.path.expanduser("~/.iotdb_chat_history")
             self.history = FileHistory(history_file)
 
-            # 命令补全
+            # 简化的命令补全 - 主要是基础控制命令
             commands = [
-                "help",
                 "quit",
                 "exit",
-                "search",
-                "pr",
-                "stats",
-                "keywords",
-                "get_conversation_summary",
+                "help",
             ]
             self.completer = WordCompleter(commands, ignore_case=True)
 
@@ -101,8 +100,8 @@ class ChatApplication:
             self.vector_tool = VectorDBTool(self.persist_directory)
 
             # 初始化消息处理器
-            print("🤖 初始化消息处理器...")
-            self.message_handler = ChatMessageHandler(self.vector_tool)
+            print("🤖 初始化GLM消息处理器...")
+            self.message_handler = GLMChatHandler(self.vector_tool)
 
             # 获取数据库统计信息
             stats = self.vector_tool.get_database_stats()
@@ -135,15 +134,16 @@ class ChatApplication:
                 if not user_input:
                     continue
 
+                # 检查用户输入是否为退出命令 - 直接退出，不发送给GLM
+                if user_input.lower() in ["quit", "exit", "退出", "再见"]:
+                    print("\n👋 用户请求退出，再见！")
+                    break
+
                 # 处理消息
                 response = self.message_handler.process_message(user_input)
 
                 # 显示回复
                 self._display_response(response)
-
-                # 检查是否需要退出
-                if response.get("intent") == "quit":
-                    break
 
         except KeyboardInterrupt:
             print("\n👋 用户中断，正在退出...")
@@ -186,23 +186,24 @@ class ChatApplication:
         """打印欢迎信息"""
         welcome_message = """
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║                     🤖 IoTDB PR智能助手                                      ║
+║                     🤖 IoTDB PR智能助手 (GLM-4.6)                            ║
 ║                                                                              ║
-║  基于向量数据库的智能对话系统，帮助您搜索和分析IoTDB项目PR信息               ║
+║  基于GLM-4.6大模型的智能对话系统，帮助您搜索和分析IoTDB项目PR信息            ║
 ║                                                                              ║
 ║  🎯 主要功能：                                                               ║
-║    • 智能搜索PR问题和解决方案                                                 ║
-║    • 查看特定PR的详细分析                                                     ║
-║    • 关键词检索相关内容                                                       ║
-║    • 数据库统计信息查看                                                       ║
-║    • 支持自然语言对话                                                         ║
+║    • 自然语言对话 - 直接描述您的问题即可                                     ║
+║    • 智能搜索PR - 基于语义理解查找相关信息                                   ║
+║    • PR详情查询 - 获取特定PR的完整分析                                       ║
+║    • 技术问题解答 - 基于IoTDB专业知识库提供解答                              ║
 ║                                                                              ║
-║  💡 使用提示：                                                               ║
-║    • 输入 "help" 查看所有可用命令                                             ║
-║    • 输入 "quit" 或按 Ctrl+C 退出                                            ║
-║    • 支持自然语言提问，例如："搜索JDBC配置相关的问题"                          ║
-║    • 使用方向键浏览历史命令                                                   ║
-║    • 使用Tab键自动补全命令                                                    ║
+║  💡 使用示例：                                                               ║
+║    • "客户在1.3.2版本遇到内存泄漏问题，帮我找相关PR"                         ║
+║    • "JDBC连接配置有哪些需要注意的地方？"                                    ║
+║    • "我想了解查询引擎优化的相关PR"                                          ║
+║    • "PR 12345解决了什么问题？"                                              ║
+║                                                                              ║
+║  🚀 开始使用：直接用自然语言描述您的问题即可！                               ║
+║     输入 "quit" 或按 Ctrl+C 退出程序                                         ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 
         """
@@ -233,36 +234,6 @@ class ChatApplication:
         except Exception as e:
             print(f"⚠️  清理时出现错误: {e}")
 
-    def run_batch_mode(self, query: str) -> None:
-        """
-        批处理模式 - 执行单个查询并退出
-
-        Args:
-            query: 要执行的查询
-        """
-        if not self.initialize():
-            return
-
-        print(f"🔍 执行查询: {query}")
-
-        try:
-            response = self.message_handler.process_message(query)
-            print(f"\n🤖 回复: {response['message']}")
-
-            if self.debug and response.get("metadata"):
-                print(f"\n🔧 调试信息: {response['metadata']}")
-
-        except Exception as e:
-            print(f"❌ 查询执行失败: {e}")
-            if self.debug:
-                logger.exception("查询异常详情")
-        finally:
-            self._cleanup()
-
-    def run_interactive_mode(self) -> None:
-        """交互模式 - 标准聊天对话"""
-        self.run()
-
 
 def create_parser() -> argparse.ArgumentParser:
     """创建命令行参数解析器"""
@@ -271,23 +242,13 @@ def create_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 使用示例:
-  %(prog)s                          # 启动交互模式
-  %(prog)s -q "JDBC配置问题"         # 批处理模式，执行单个查询
+  %(prog)s                          # 启动交互聊天模式
   %(prog)s --debug                  # 启用调试模式
   %(prog)s -d /path/to/db           # 指定数据库目录
 
-支持的命令:
-  help                              # 显示帮助信息
-  search <查询内容>                  # 搜索相关问题
-  pr <PR编号>                      # 获取PR详情
-  keywords <关键词1,关键词2>        # 关键词搜索
-  stats                             # 数据库统计
-  quit                              # 退出应用
+💡 提示: 使用GLM-4.6大模型，直接用自然语言描述问题即可！
+  例如: "客户在1.3.2版本遇到内存泄漏问题，帮我找相关PR"
         """,
-    )
-
-    parser.add_argument(
-        "-q", "--query", type=str, help="批处理模式：执行单个查询并退出"
     )
 
     parser.add_argument(
@@ -318,13 +279,8 @@ def main() -> None:
     app = ChatApplication(persist_directory=args.database, debug=args.debug)
 
     try:
-        if args.query:
-            # 批处理模式
-            app.run_batch_mode(args.query)
-        else:
-            # 交互模式
-            app.run_interactive_mode()
-
+        # 启动交互聊天模式
+        app.run()
     except Exception as e:
         print(f"❌ 应用启动失败: {e}")
         if args.debug:

@@ -4,6 +4,7 @@ Centralized logging configuration for the IoTDB PR analysis system
 """
 
 import logging
+import os
 from pathlib import Path
 from config import LOG_LEVEL, LOG_FORMAT, LOG_FILE, LOG_OUTPUT
 
@@ -29,8 +30,16 @@ def setup_logger(name: str) -> logging.Logger:
         # Create formatter
         formatter = logging.Formatter(LOG_FORMAT)
 
-        # Configure handlers based on LOG_OUTPUT setting
-        output_mode = LOG_OUTPUT.lower()
+        # Check if we're in chat mode via environment variable
+        chat_mode = os.getenv("CHAT_MODE", "false").lower() == "true"
+
+        # Configure handlers based on mode and LOG_OUTPUT setting
+        if chat_mode:
+            # Chat mode: only output to file to avoid interfering with user interface
+            output_mode = "file"
+        else:
+            # Normal mode: use the configured LOG_OUTPUT setting
+            output_mode = LOG_OUTPUT.lower()
 
         if output_mode == "both":
             # Console handler
