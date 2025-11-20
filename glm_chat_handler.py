@@ -88,7 +88,7 @@ class GLMChatHandler:
 3. **专业解答**：基于搜索结果，为用户提供准确、专业的技术解答
 
 **主要工具：**
-- `search_by_keywords`: 根据关键词搜索相关PR（这是主要的搜索方式）
+- `search_by_keywords`: 根据关键词搜索相关PR
 - `get_pr_details`: 获取特定PR的详细信息
 - `get_database_stats`: 获取数据库统计信息
 
@@ -167,46 +167,58 @@ class GLMChatHandler:
 
             assistant_message = response.choices[0].message
 
-            # 处理工具调用
-            if assistant_message.tool_calls:
-                tool_results = []
+            # 循环处理工具调用，直到没有更多工具调用
+            final_message = ""
+            current_message = assistant_message
 
-                # 执行工具调用
-                for tool_call in assistant_message.tool_calls:
-                    tool_result = self._execute_tool_call(tool_call)
-                    tool_results.append(tool_result)
+            while True:
+                # 检查是否有工具调用
+                if current_message.tool_calls:
+                    # 执行工具调用
+                    tool_results = []
+                    for tool_call in current_message.tool_calls:
+                        tool_result = self._execute_tool_call(tool_call)
+                        tool_results.append(tool_result)
 
-                # 构建包含工具结果的消息
-                messages.append(
-                    {
-                        "role": "assistant",
-                        "content": assistant_message.content or "",
-                        "tool_calls": [
-                            tool_call.model_dump()
-                            for tool_call in assistant_message.tool_calls
-                        ],
-                    }
-                )
-
-                for tool_result in tool_results:
+                    # 构建包含工具结果的消息
                     messages.append(
                         {
-                            "role": "tool",
-                            "tool_call_id": tool_result["tool_call_id"],
-                            "content": json.dumps(
-                                tool_result["result"], ensure_ascii=False
-                            ),
+                            "role": "assistant",
+                            "content": current_message.content or "",
+                            "tool_calls": [
+                                tool_call.model_dump()
+                                for tool_call in current_message.tool_calls
+                            ],
                         }
                     )
 
-                # 再次调用GLM获取最终回答
-                final_response = self.client.chat.completions.create(
-                    model="glm-4.6", messages=messages, temperature=0.3, max_tokens=2000
-                )
+                    for tool_result in tool_results:
+                        messages.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": tool_result["tool_call_id"],
+                                "content": json.dumps(
+                                    tool_result["result"], ensure_ascii=False
+                                ),
+                            }
+                        )
 
-                final_message = final_response.choices[0].message.content
-            else:
-                final_message = assistant_message.content or ""
+                    # 再次调用GLM获取下一步回答
+                    next_response = self.client.chat.completions.create(
+                        model="glm-4.6",
+                        messages=messages,
+                        tools=self.tools,
+                        tool_choice="auto",
+                        temperature=0.3,
+                        max_tokens=50000,
+                    )
+
+                    current_message = next_response.choices[0].message
+                    # 继续循环检查是否有新的工具调用
+                else:
+                    # 没有更多工具调用，获取最终回答
+                    final_message = current_message.content or ""
+                    break
 
             # 记录助手回复到对话历史
             self.conversation_history.append(
